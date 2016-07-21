@@ -1,0 +1,134 @@
+/127.0.0.1:50016 received packet from /127.0.0.1:60727
+CSE473 DHTPv0.2015
+type:put
+key:foo
+val:bar
+tag:12345
+ttl:99
+
+/127.0.0.1:50016 sending packet to /127.0.0.1:60727
+CSE473 DHTPv0.2015
+type:success
+key:foo
+val:bar
+tag:12345
+ttl:99
+
+/127.0.0.1:50016 received packet from /127.0.0.1:50341
+CSE473 DHTPv0.2015
+type:put
+key:who
+val:hah
+tag:12345
+ttl:99
+
+/127.0.0.1:50016 sending packet to /127.0.0.1:50341
+CSE473 DHTPv0.2015
+type:success
+key:who
+val:hah
+tag:12345
+ttl:99
+
+/127.0.0.1:50016 received packet from /127.0.0.1:53100
+CSE473 DHTPv0.2015
+type:get
+key:foo
+tag:12345
+ttl:99
+
+/127.0.0.1:50016 sending packet to /127.0.0.1:53100
+CSE473 DHTPv0.2015
+type:success
+key:foo
+val:bar
+tag:12345
+ttl:99
+
+/127.0.0.1:50016 received packet from /127.0.0.1:63599
+CSE473 DHTPv0.2015
+type:get
+key:who
+tag:12345
+ttl:99
+
+/127.0.0.1:50016 sending packet to /127.0.0.1:63599
+CSE473 DHTPv0.2015
+type:success
+key:who
+val:hah
+tag:12345
+ttl:99
+
+/127.0.0.1:50016 received packet from /127.0.0.1:56058
+CSE473 DHTPv0.2015
+type:get
+key:goodbye
+tag:12345
+ttl:99
+
+/127.0.0.1:50016 sending packet to /127.0.0.1:56058
+CSE473 DHTPv0.2015
+type:no match
+key:goodbye
+tag:12345
+ttl:99
+
+/127.0.0.1:50016 received packet from /127.0.0.1:49891
+CSE473 DHTPv0.2015
+type:get
+tag:12345
+ttl:99
+
+/127.0.0.1:50016 sending packet to /127.0.0.1:49891
+CSE473 DHTPv0.2015
+type:failure
+tag:12345
+reason:gets and puts require key and tag
+ttl:99
+
+/127.0.0.1:50016 received packet from /127.0.0.1:58039
+CSE473 DHTPv0.2015
+type:get
+key:bar
+tag:12345
+ttl:99
+
+/127.0.0.1:50016 sending packet to /127.0.0.1:58039
+CSE473 DHTPv0.2015
+type:no match
+key:bar
+tag:12345
+ttl:99
+
+/127.0.0.1:50016 received packet from /127.0.0.1:64293
+CSE473 DHTPv0.2015
+type:put
+key:foo
+val:toast is tasty
+tag:12345
+ttl:99
+
+/127.0.0.1:50016 sending packet to /127.0.0.1:64293
+CSE473 DHTPv0.2015
+type:success
+key:foo
+val:toast is tasty
+tag:12345
+ttl:99
+
+/127.0.0.1:50016 received packet from /127.0.0.1:59396
+CSE473 DHTPv0.2015
+type:get
+key:foo
+tag:12345
+ttl:99
+
+/127.0.0.1:50016 sending packet to /127.0.0.1:59396
+CSE473 DHTPv0.2015
+type:success
+key:foo
+val:toast is tasty
+tag:12345
+ttl:99
+

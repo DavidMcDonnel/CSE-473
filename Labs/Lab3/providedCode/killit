@@ -1,0 +1,11 @@
+#! /bin/bash
+source /users/onl/.topology
+
+ssh $h7x1 killall java
+ssh $h6x1 killall java
+ssh $h3x2 killall java
+ssh $h2x5 killall java
+ssh $h2x4 killall java
+ssh $h2x3 killall java
+ssh $h1x1 killall java
+ssh $h5x2 killall java

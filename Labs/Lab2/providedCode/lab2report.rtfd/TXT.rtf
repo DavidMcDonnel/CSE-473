@@ -1,0 +1,683 @@
+{\rtf1\ansi\ansicpg1252\cocoartf1348\cocoasubrtf170
+{\fonttbl\f0\froman\fcharset0 Times-Roman;\f1\fnil\fcharset0 AndaleMono;\f2\fmodern\fcharset0 Courier;
+\f3\fswiss\fcharset0 Helvetica;}
+{\colortbl;\red255\green255\blue255;\red26\green26\blue26;}
+{\info
+{\title CS/EE 260}
+{\author diana}
+{\*\company Washington University}}\margl1530\margr1350\vieww12480\viewh14980\viewkind0
+\deftab720
+\pard\pardeftab720\pardirnatural
+
+\f0\i\fs24 \cf0 CSE 473 \'96 Introduction to Computer Networks		          \
+\pard\pardeftab720\sb80\sa60\pardirnatural
+
+\i0 \cf0 Lab 2 Report\
+\pard\pardeftab720\pardirnatural
+
+\i \cf0 David McDonnel	9
+\i0 /
+\i 28
+\i0 /
+\i 2015	\
+\
+\pard\pardeftab720\pardirnatural
+
+\b \cf0 Part A (20 points). 
+\i0\b0 Place a copy of your source code for 
+\i TcpMapServer
+\i0  here.\
+paste your code here\
+\
+\pard\pardeftab720
+\cf0 \expnd0\expndtw0\kerning0
+\
+// Name: David McDonnel                                    \
+// WUID: 420325                                            \
+// Date: 9/30/2015                                         \
+// Description: TcpMapServer                               \
+// - Input:	port - optional argument to specify port # \
+// 		myIp - optional argument to specify host ip\
+//                                                         \
+// - Behavior:  This program runs a server,        	   \
+//		accepts input from a client,		   \
+//		performs the specified operations on the   \
+//		argument(s),				   \
+//		stores arguments to or updates a hashmap   \
+\
+\
+import java.io.*;\
+import java.net.*;\
+import java.util.HashMap;\
+\
+public class TcpMapServer \{\
+\
+	private HashMap<String, String> hMap;\
+\
+	public TcpMapServer() \{\
+		hMap = new HashMap<String, String>();\
+	\}\
+\
+	/**\
+	 * input String key perform hashmap get on input return success message\
+	 **/\
+	public String get(String key) \{\
+		String ans = hMap.get(key);\
+		return ans == null ? "no match" : "success:" + ans;\
+	\}\
+\
+	/**\
+	 * perform hashmap get on all entries return success message\
+	 **/\
+	public String getAll() \{\
+		String ans = "";\
+		for (String key : hMap.keySet()) \{\
+			ans += "key:" + key + "::" + hMap.get(key) + " ";\
+		\}\
+		return ans.substring(0, ans.length() - 1);\
+	\}\
+\
+	/**\
+	 * input String key, String value perform hashmap put operation on inputs\
+	 * return success messsage\
+	 **/\
+	public String put(String key, String value) \{\
+		boolean b = hMap.containsKey(key);\
+		String ans = hMap.put(key, value);\
+		return b ? "updated:" + key : "success";\
+	\}\
+\
+	/**\
+	 * input String key perform hashmap remove on input return success message\
+	 **/\
+	public String remove(String key) \{\
+		String ans = hMap.remove(key);\
+		return ans != null ? "success" : "no match";\
+	\}\
+\
+	/**\
+	 * input String key, String value swap two hashmap key value pairs return\
+	 * success message\
+	 **/\
+	public String swap(String key1, String key2) \{\
+		boolean b = hMap.containsKey(key1) && hMap.containsKey(key2);\
+		String tmp = hMap.get(key1);\
+		hMap.put(key1, hMap.get(key2));\
+		hMap.put(key2, tmp);\
+		return b ? "success" : "no match";\
+	\}\
+\
+	public static void main(String args[]) throws Exception \{\
+\
+		int port = 31357;\
+		InetAddress myIp = null;\
+\
+		if (args.length == 2) \{\
+			myIp = InetAddress.getByName(args[0]);\
+			port = Integer.parseInt(args[1]);\
+		\}\
+		ServerSocket socket = new ServerSocket(port, 0, myIp);\
+		byte[] buf = new byte[1000];\
+		while (true) \{\
+			Socket client = socket.accept();\
+			// Once connected, create read stream to get client input\
+			BufferedInputStream sin = new BufferedInputStream(\
+					client.getInputStream());\
+			BufferedOutputStream sout = new BufferedOutputStream(\
+					client.getOutputStream());\
+			\
+			BufferedReader in = new BufferedReader(new InputStreamReader(sin,"US-ASCII"));\
+			BufferedWriter out = new BufferedWriter(new OutputStreamWriter(sout,"US-ASCII"));\
+			\
+\
+			String[] input;\
+			byte[] outBytes = null;\
+			String response;\
+			int length;\
+			String decoded;\
+			//int nbytes=0;\
+			// Instance of class to hold hashmap\
+			TcpMapServer ms = new TcpMapServer();\
+\
+			while (true) \{\
+\
+				// wait for incoming packet\
+				// parse incoming packet\
+				//nbytes = in.read(buf, 0, buf.length);\
+				//decoded = new String(buf, 0, nbytes);\
+				decoded=in.readLine();\
+				if(decoded == "" || decoded == null)\{\
+					break;\
+				\}\
+				input = decoded.split(":");\
+				length = input.length;\
+				// handle all cases of operation input\
+				// For each case test if correct # of arguments\
+				// Then record response or mark as bad data\
+				switch (input[0]) \{\
+				case "get":\
+					response = length == 2 ? ms.get(input[1]) : "bad";\
+					break;\
+				case "put":\
+					response = length == 3 ? ms.put(input[1], input[2]) : "bad";\
+					break;\
+				case "remove":\
+					response = length == 2 ? ms.remove(input[1]) : "bad";\
+					break;\
+				case "swap":\
+					response = length == 3 ? ms.swap(input[1], input[2])\
+							: "bad";\
+					break;\
+				case "get all":\
+					if(ms.hMap.isEmpty())\{\
+						response = "empty";\
+					\}else\{\
+						response = length == 1 ? ms.getAll() : "bad";\
+					\}\
+					break;\
+				default:\
+					response = "bad";\
+					break;\
+				\}\
+				// If bad data respond with error\
+				if (response == "bad") \{\
+					response = "error:unrecognizable input:" + decoded;\
+				\}\
+\
+				// and send it back\
+				//outBytes = response.getBytes("US-ASCII");\
+\
+				//out.write(outBytes, 0, outBytes.length);\
+				//out.flush();\
+				out.write(response);\
+				out.newLine();\
+				out.flush();\
+			\}\
+			in.close();\
+			out.close();\
+			sin.close();\
+			sout.close();\
+			client.close();\
+			continue;\
+		\}\
+	\}\
+\}\kerning1\expnd0\expndtw0 \
+\
+\pard\pardeftab720\pardirnatural
+\cf0 \page \pard\pardeftab720\pardirnatural
+
+\i\b \cf0 Part B (10 points).
+\b0  
+\i0 Place a copy of your source code for 
+\i TcpMapClient
+\i0  here.\
+paste your code here \
+\
+\pard\pardeftab720
+\cf0 \expnd0\expndtw0\kerning0
+// Name: David McDonnel                                    \
+// WUID: 420325                                            \
+// Date: 9/30/2015                                         \
+// Description: TcpMapServer                               \
+// - Input:	port - optional argument to specify port # \
+// 		myIp - optional argument to specify host ip\
+//                                                         \
+// - Behavior:  This program runs a server,        	   \
+//		accepts input from a client,		   \
+//		performs the specified operations on the   \
+//		argument(s),				   \
+//		stores arguments to or updates a hashmap   \
+\
+\
+import java.io.*;\
+import java.net.*;\
+\
+/**\
+ * usage: TcpMapClient name port operation arg1 arg2 Input: name - String port -\
+ * integer operation - String arg1 - String arg2 - String Send a packet to the\
+ * named server:port containing the given arguments. Wait for reply packet and\
+ * print its contents.\
+ **/\
+\
+public class TcpMapClient \{\
+	public static void main(String args[]) throws Exception \{\
+		// get server address using first command-line argument\
+		InetAddress serverAdr = InetAddress.getByName(args[0]);\
+		int port = 31357;\
+		if (args.length == 2) \{\
+			port = Integer.parseInt(args[1]);\
+		\}\
+\
+		Socket socket = new Socket(serverAdr, port);\
+		BufferedReader in = new BufferedReader(new InputStreamReader(\
+				socket.getInputStream(), "US-ASCII"));\
+		BufferedWriter out = new BufferedWriter(new OutputStreamWriter(\
+				socket.getOutputStream(), "US-ASCII"));\
+\
+		BufferedReader sysin = new BufferedReader(new InputStreamReader(\
+				System.in));\
+		String line;\
+\
+		while (true) \{\
+			line = sysin.readLine();\
+			if (line == null || line.length() == 0)\
+				break;\
+			// write line on socket and print reply to System.out\
+			out.write(line);\
+			out.newLine();\
+			out.flush();\
+			System.out.println(in.readLine());\
+		\}\
+\
+		socket.close();\
+	\}\
+\}\
+\pard\pardeftab720
+\cf0 \kerning1\expnd0\expndtw0 \page \pard\pardeftab720
+
+\i\b \cf0 Part C (10 points).
+\b0  
+\i0 Use the provided 
+\i localScript
+\i0  to test your client and server. You may do this testing on any Unix (including MacOS) or Linux computer (shell.cec.wustl.edu or onl.wustl.edu). Paste a copy of the output below.\
+\pard\pardeftab720\pardirnatural
+\cf0 paste your output here\
+\pard\pardeftab720\pardirnatural
+
+\f1 \cf0 \
+success\
+success\
+success\
+success:slim jim\
+success:ho ho\
+success:world\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\pardeftab720\pardirnatural
+\cf0 \CocoaLigature0 key:goodbye::world key:hah::ho ho key:foo bar::slim jim\CocoaLigature1 \
+\pard\pardeftab720\pardirnatural
+\cf0 error:unrecognizable input:get\
+error:unrecognizable input:foo:who\
+no match\
+success\
+success:toast is tasty\
+updated:hah\
+success\
+key:goodbye::world key:foo::yolo key:foo bar::slim jim key:hah::toast is tasty\
+empty\
+no match\
+empty\
+no match\
+empty
+\f0 \
+\
+\page \pard\pardeftab720\pardirnatural
+
+\i\b \cf0 Part D (15 points).
+\i0\b0  In the remaining parts of the lab, you will be testing your application in ONL. Use the RLI to reserve an experimental network using the provided configuration file, 
+\i cse473-lab2.onl 
+\i0 (remember to first open an 
+\i ssh
+\i0  connection to ONL with the tunnel required by the RLI), and commit your network. Open two separate 
+\i ssh
+\i0  windows, one connecting to the host 
+\i h4x2
+\i0  and the other to the host 
+\i h7x1
+\i0  (remember to load the topology file first). First, start the server using the window for host 
+\i h7x1. 
+\i0 When starting the server, you should specify the host name (
+\i h7x1
+\i0 ) or IP address (192.168.7.1) for the host in the experimental network. Use the default port number. Run the command in the \'93background\'94 by putting an ampersand (&) at the end of the line. This will allow you to use the window for command input, even while the server is running (read the job control section of the 
+\i bash
+\i0  manual to learn more about running jobs in the foreground and background). Note that once you start the server, it will \'93run forever\'94 until you stop it. One simple way to do this is to type 
+\f2 kill %1
+\f0 . Note that if you have multiple jobs running in the background, you will need to substitute the appropriate job number for 
+\f2 %1
+\f0 . See the bash manual for details.\
+Now that your server is running in the background, type the following command in the window for 
+\i h7x1
+\i0 .\
+netstat \'96an | grep 31357\
+and paste a copy of the output below.\
+\
+\pard\pardeftab720\pardirnatural
+
+\f1 \cf0 dmcdonnel@pc1core07:~$ netstat -an | grep 31357\
+tcp6       0      0 :::31357                :::*                    LISTEN
+\f0 \
+\
+\
+Now, start the client on 
+\i h4x2
+\i0  (supplying the appropriate arguments) and then re-run 
+\i netstat
+\i0  on 
+\i h7x1
+\i0  and paste the output below.\
+\
+
+\f1 dmcdonnel@pc1core07:~$ netstat -an | grep 31357\
+tcp6       0      0 :::31357                :::*                    LISTEN     \
+tcp6       0      0 192.168.7.1:31357       192.168.4.2:50093       ESTABLISHED
+\f0 \
+\
+\
+Explain the 
+\i netstat
+\i0  output in the two cases. You should read the man page on 
+\i netstat
+\i0  before answering this part (type \'93man netstat\'94 to get the man page). (Ignore the fact that it may say \'91tcp6\'92 when you expect \'91tcp\'92 or \'91tcp4\'92. That is an artifact of netstat and sockets.)\
+\
+When only running the server, the output of netstat is  a tcp connection running on localhost at port 31357, listening for all foreign addresses. There are 0 bytes in the recv-q and the send-q.\
+\
+When running the server and client, the server client is the same. The client socket is an established tcp socket connected to h7x1:31357, from h4x2:50093 with 0 bytes in both the send and receive q\'92s.\
+\
+\
+In the first case only one tcp socket was open on 31357, the listener.\
+After the client was started, the listener socket remained, and the client tcp socket was opened.\
+\
+\page Now, run the provided 
+\i remoteScript
+\i0  on 
+\i h4x2
+\i0 . Paste the output from your run below.\
+paste your output here\
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\pardeftab720\pardirnatural
+
+\f1 \cf0 \CocoaLigature0 dmcdonnel@pc1core12:~$ ./remoteScript h7x1\
+success\
+success\
+success\
+success:slim jim\
+success:ho ho\
+success:world\
+key:goodbye::world key:hah::ho ho key:foo bar::slim jim\
+error:unrecognizable input:get\
+error:unrecognizable input:foo:who\
+no match\
+success\
+success:toast is tasty\
+updated:hah\
+success\
+key:goodbye::world key:foo::yolo key:hah::toast is tasty key:foo bar::slim jim\
+empty\
+no match\
+empty\
+no match\
+empty
+\f0 \CocoaLigature1 \
+\pard\pardeftab720\pardirnatural
+\cf0 \
+\
+\
+\page \pard\pardeftab720\pardirnatural
+
+\i\b \cf0 Part E (10 points).
+\i0\b0  In this part, you are to re-run the 
+\i remoteScript
+\i0  and take a screen capture of the two monitoring windows showing the traffic that results from running the 
+\i remoteScript 
+\i0 (ignore the queue length window). You can pause a monitoring window by selecting 
+\i Stop
+\i0  from its 
+\i Options
+\i0  menu. This makes it easier to do the screen capture. Restart the paused window by select 
+\i Stop 
+\i0 a second time.\
+paste your screenshot here\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\pardeftab720\pardirnatural
+
+\f3 \cf0 {{\NeXTGraphic Screen Shot 2015-10-03 at 6.51.38 PM.png \width10600 \height11180
+}¬}\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\pardeftab720\pardirnatural
+
+\f0 \cf0 \
+\pard\pardeftab720\pardirnatural
+\cf0 \
+The charts should show a burst of traffic for some of the curves and no traffic for others. Which curves show a burst of traffic? Is this consistent with what you expect? Note that there are two possible routes between the two end hosts. Which of the two routes are used in this case?\
+\
+In the inter-router traffic, 1.1 and 2.0 have traffic, which is consistent with my expectations. The route from router 1:1 to router 2:0 is the quickest route between these two machines. The other possible route was through the gige0.\
+\
+\
+\
+\
+\page \pard\pardeftab720\pardirnatural
+
+\i\b \cf0 Part F (10 points).
+\i0\b0  In this next part, you are to run 
+\i remoteScript
+\i0  once again, but this time, you will be using 
+\i Wireshark
+\i0  to capture packets as seen at both hosts. Using 
+\i Wireshark
+\i0  in 
+\i onl
+\i0  requires a little extra effort, since 
+\i Wireshark
+\i0  itself must run on the target computer within 
+\i onl
+\i0 , while the graphical interface needs to appear on your local computer. You will need X-windows support on your local computer to make this work. The PCs in the Urbauer labs are configured to support X, so we\'92ll start with the procedure used there. Start by opening a new command window on your local computer and type\
+\pard\pardeftab720\pardirnatural
+
+\f2 \cf0 startxwin\
+\pard\pardeftab720\pardirnatural
+
+\f0 \cf0 This will open a new window. In this new window, type\
+\pard\pardeftab720\pardirnatural
+
+\f2 \cf0 ssh \'96X myLogin@onl.wustl.edu\
+\pard\pardeftab720\pardirnatural
+
+\f0 \cf0 This creates an 
+\i ssh
+\i0  connection that forwards \'93X-windows\'94 commands from 
+\i onlusr
+\i0  back to your local computer. X-windows is a generic windowing system developed at MIT in the 1980s. It is still used for a number of 
+\i unix
+\i0 /
+\i linux
+\i0  applications, including 
+\i Wireshark
+\i0 . Now, type\
+\pard\pardeftab720\li720\pardirnatural
+
+\f2 \cf0 source
+\f0  
+\f2 /users/onl/.topology
+\f0  \uc0\u8232 
+\f2 ssh \'96X $h4x2\
+\pard\pardeftab720\pardirnatural
+
+\f0 \cf0 This will log you into host 
+\i h4x2
+\i0  and forward X-windows commands from 
+\i h4x2
+\i0  back through 
+\i onlusr
+\i0  to your local computer. Next, type\
+	
+\f2 sudo wireshark\
+
+\f0 After you enter your 
+\i onl
+\i0  password, 
+\i Wireshark 
+\i0 will start running on 
+\i h4x2
+\i0 ,
+\i  
+\i0 and the 
+\i Wireshark
+\i0  window will open on your local computer. If you want to do this part of the lab using your own computer, you may have to do some initial configuration. If you have a Mac or a Linux computer, with 
+\i Wireshark
+\i0  installed, you\'92re probably good to go. Just open a terminal window and type\
+	
+\f2 ssh \'96X myLogin@onl.wustl.edu\
+
+\f0 and proceed as described above (note, you don\'92t need the 
+\i startxwin
+\i0  step). If you are using a Windows computer, there are several options for installing X, but the most straightforward is probably to install 
+\i cygwin
+\i0 , and configure it to enable X (this is the approach used in the Urbauer lab computers). 
+\i Cygwin
+\i0  is a Unix emulation environment that runs on Windows. Use your favorite search engine to find the 
+\i cygwin
+\i0  site, read the instructions and then download/install. Once you have things setup, just follow the procedure given above for the Urbauer computers.\
+\
+Now, configure 
+\i Wireshark
+\i0  to capture packets on the 
+\i data0 
+\i0 interface and then re-run 
+\i remoteScript 
+\i0 in the original terminal window connected to 
+\i h4x2
+\i0 . Find the packet going from 
+\i h4x2
+\i0  to 
+\i h7x1
+\i0  that includes the \'93get:goodbye\'94 command. Highlight that packet in the upper sub-window and make sure that the packet contents are visible in the lower sub-window. \
+\pard\pardeftab720\pardirnatural\qc
+\cf0 \
+\
+\
+\
+\
+\
+\
+\pard\pardeftab720\pardirnatural\qc
+
+\i \cf0 Paste a copy of the Wireshark window here
+\i0 .\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\pardeftab720\pardirnatural
+
+\f3 \cf0 {{\NeXTGraphic Screen Shot 2015-10-03 at 7.14.39 PM.png \width11180 \height9600
+}¬}\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\pardeftab720\pardirnatural
+
+\f0 \cf0 \
+\pard\pardeftab720\pardirnatural
+\cf0 \
+\
+How much time passes between the time this packet is sent and the time the reply arrives? (Note, the reply appears on the next line and the second column of the displays shows the times relative to the start of the capture.)\
+\
+\pard\pardeftab720
+\cf2 \expnd0\expndtw0\kerning0
+.050326000 seconds\cf0 \kerning1\expnd0\expndtw0 \
+\pard\pardeftab720\pardirnatural
+\cf0 \
+The observed time is caused primarily by an artificial delay that has been configured in one of the routers, using a special 
+\i delay plugin
+\i0 . Which router contains the delay plugin? \
+\
+NPR.1 contains the delay plugin.\
+\page Find the filter that causes packets to pass through the plugin and turn it off, using the RLI. Don\'92t forget to commit after disabling the filter. Now, start a new 
+\i Wireshark capture
+\i0  and re-run 
+\i remoteScript
+\i0 . \
+\
+\
+\pard\pardeftab720\pardirnatural\qc
+
+\i \cf0 Paste a copy of the new Wireshark window here
+\i0 .\
+\pard\pardeftab720\pardirnatural
+\cf0 \
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\pardeftab720\pardirnatural
+
+\f3 \cf0 {{\NeXTGraphic Screen Shot 2015-10-03 at 7.25.39 PM.png \width11180 \height9600
+}¬}\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\pardeftab720\pardirnatural
+
+\f0 \cf0 \
+\
+\pard\pardeftab720\pardirnatural
+\cf0 \
+\
+\
+\
+\
+\
+Now, how much time passes between the sending of the packet and the response?\
+\
+\pard\pardeftab720
+\cf2 \expnd0\expndtw0\kerning0
+.000303000 seconds\cf0 \kerning1\expnd0\expndtw0 \
+\pard\pardeftab720\pardirnatural
+\cf0  \
+\page \pard\pardeftab720\pardirnatural
+
+\i\b \cf0 Part G (10 points).
+\i0\b0  In this part, you will measure the performance of your application in another way. Run the provided 
+\i longScript 
+\i0 on the client. This performs a large number of puts and gets. Make a screen capture of the two monitoring windows showing the packet traffic in the network. (The filter directing packets to the delay plugin should still be turned OFF!)\
+\pard\pardeftab720\pardirnatural\qc
+\cf0 \
+\
+\pard\pardeftab720\pardirnatural\qc
+
+\i \cf0 Paste the screenshot here\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\pardeftab720\pardirnatural
+
+\f3\i0 \cf0 {{\NeXTGraphic Screen Shot 2015-10-03 at 7.31.49 PM.png \width10620 \height11140
+}¬}\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\pardeftab720\pardirnatural
+
+\f0\i \cf0 \
+\pard\pardeftab720\pardirnatural\qc
+\cf0 \
+\
+\pard\pardeftab720\pardirnatural
+
+\i0 \cf0 What does the traffic data tell you about the performance of the application? \
+\
+This informs us that our application can transfer about 6700.3 packets/s.\
+\pard\pardeftab720\pardirnatural
+
+\i \cf0  \
+\pard\pardeftab720\pardirnatural
+
+\i0 \cf0 \page Repeat the above experiment while running 
+\i Wireshark
+\i0  on 
+\i h7x1
+\i0 . Select a packet going from 
+\i h4x2
+\i0  to 
+\i h7x1
+\i0  from somewhere near the middle of the capture. \
+\pard\pardeftab720\pardirnatural\qc
+\cf0 \
+\
+\
+\pard\pardeftab720\pardirnatural\qc
+
+\i \cf0 Paste a copy of your Wireshark window here.
+\f3\i0 {{\NeXTGraphic Screen Shot 2015-10-03 at 7.49.12 PM.png \width11180 \height9600
+}¬}
+\f0\i \
+\pard\pardeftab720\pardirnatural
+\cf0 \
+\pard\pardeftab720\pardirnatural\qc
+\cf0 \
+\pard\pardeftab720\pardirnatural
+
+\i0 \cf0 How much time passes between when 
+\i h7x1
+\i0  receives the packet and the time it sends its reply?\
+\
+\pard\pardeftab720
+\cf2 \expnd0\expndtw0\kerning0
+0.000026 seconds\cf0 \kerning1\expnd0\expndtw0 \
+\pard\pardeftab720\pardirnatural
+\cf0 \
+How much time from when 
+\i h7x1
+\i0  receives this packet and the time it receives the next one. \
+\
+\pard\pardeftab720
+\cf2 \expnd0\expndtw0\kerning0
+0.000147 seconds\cf0 \kerning1\expnd0\expndtw0 \
+\pard\pardeftab720\pardirnatural
+\cf0 \
+Is this consistent with what you observed based on the packet rate chart?\
+Yes, 1/6700.3 = .000149 seconds which is almost identical to the lag between sent packets.\
+}

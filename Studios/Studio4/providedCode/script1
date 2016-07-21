@@ -1,0 +1,21 @@
+#! /bin/bash
+dropProb=.2
+delta=.05
+source /users/onl/.topology
+
+PWD=`pwd`
+
+echo "dropProb=" $dropProb " delta=" $delta
+
+ssh $h7x1 "cd ${PWD}; java TestMonitor h7x1 11313 debug ${dropProb} \
+    ${delta} 10 >srvOut1 &"
+ssh $h4x2 "cd ${PWD}; java TestMonitor h4x2 0 debug ${dropProb} \
+    ${delta} 10 h7x1 11313 >cliOut1"
+
+echo "************** client report ****************"
+cat cliOut1
+
+sleep 5
+
+echo "************** server report ****************"
+cat srvOut1

@@ -1,0 +1,50 @@
+/192.168.2.3:47240 sending packet to /192.168.2.4:48993
+CSE473 DHTPv0.2015
+type:join
+tag:0
+ttl:100
+
+/192.168.2.3:47240 received packet from /192.168.2.4:48993
+CSE473 DHTPv0.2015
+type:success
+hashRange:1342177280:1610612735
+tag:0
+succInfo:192.168.1.1:52600:1610612736
+ttl:98
+
+rteTbl= [(/192.168.1.1:52600,1610612736)]
+/192.168.2.3:47240 received packet from /192.168.4.2:41010
+CSE473 DHTPv0.2015
+type:get
+key:chocolate
+tag:12345
+ttl:99
+
+/192.168.2.3:47240 sending packet to /192.168.1.1:52600
+CSE473 DHTPv0.2015
+type:get
+key:chocolate
+relayAdr:192.168.2.3:47240
+tag:12345
+clientAdr:192.168.4.2:41010
+ttl:99
+
+/192.168.2.3:47240 received packet from /192.168.1.1:52600
+CSE473 DHTPv0.2015
+type:success
+key:chocolate
+relayAdr:192.168.2.3:47240
+senderInfo:192.168.1.1:52600:1610612736
+val:fudge
+tag:12345
+clientAdr:192.168.4.2:41010
+ttl:97
+
+/192.168.2.3:47240 sending packet to /192.168.4.2:41010
+CSE473 DHTPv0.2015
+type:success
+key:chocolate
+val:fudge
+tag:12345
+ttl:97
+

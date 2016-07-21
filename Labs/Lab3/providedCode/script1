@@ -1,0 +1,51 @@
+java DhtServer localhost $1 cfg0 $2 debug >log0 &
+sleep 1
+java DhtServer localhost $1 cfg2 $2 debug cfg0 >log2 &
+sleep 1
+java DhtServer localhost $1 cfg1 $2 debug cfg0 >log1 &
+sleep 1
+java DhtServer localhost $1 cfg3 $2 debug cfg2 >log3 &
+sleep 1
+
+echo put foo bar
+java DhtClient localhost cfg0 put foo bar
+echo put who hah
+java DhtClient localhost cfg1 put who hah
+echo put junk mail
+java DhtClient localhost cfg3 put junk mail
+echo put blue moose
+java DhtClient localhost cfg2 put blue moose
+echo get foo
+java DhtClient localhost cfg3 get foo
+echo get who
+java DhtClient localhost cfg2 get who
+echo get goodbye
+java DhtClient localhost cfg0 get goodbye
+echo get blue
+java DhtClient localhost cfg1 get blue
+echo get
+java DhtClient localhost cfg2 get
+echo get bar
+java DhtClient localhost cfg3 get bar
+echo put foo "toast is tasty"
+java DhtClient localhost cfg2 put foo "toast is tasty"
+echo get foo
+java DhtClient localhost cfg0 get foo
+echo get blue
+java DhtClient localhost cfg3 get blue
+echo get blue
+java DhtClient localhost cfg1 get blue
+echo get blue
+java DhtClient localhost cfg2 get blue
+echo get blue
+java DhtClient localhost cfg0 get blue
+echo get blue
+java DhtClient localhost cfg3 get blue
+echo get blue
+java DhtClient localhost cfg1 get blue
+echo get blue
+java DhtClient localhost cfg2 get blue
+echo get blue
+java DhtClient localhost cfg0 get blue
+
+killall java

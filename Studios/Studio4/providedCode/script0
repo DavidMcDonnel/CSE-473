@@ -1,0 +1,14 @@
+#! /bin/bash
+port=$1
+dropProb=.2
+delta=.5
+echo "dropProb=" $dropProb " delta=" $delta
+java TestMonitor localhost ${port} debug ${dropProb} ${delta} 10 \
+       >srvOut0 &
+java TestMonitor localhost 0 debug ${dropProb} ${delta} 10 \
+       localhost ${port} >cliOut0
+echo "************** client report ****************"
+cat cliOut0
+sleep 2
+echo "************** server report ****************"
+cat srvOut0

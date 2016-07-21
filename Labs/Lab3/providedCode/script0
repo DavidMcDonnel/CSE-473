@@ -1,0 +1,23 @@
+java DhtServer localhost 1 cfg debug >log&
+sleep 2
+
+echo put foo bar
+java DhtClient localhost cfg put foo bar
+echo put who hah
+java DhtClient localhost cfg put who hah
+echo get foo
+java DhtClient localhost cfg get foo
+echo get who
+java DhtClient localhost cfg get who
+echo get goodbye
+java DhtClient localhost cfg get goodbye
+echo get
+java DhtClient localhost cfg get
+echo get bar
+java DhtClient localhost cfg get bar
+echo put foo "toast is tasty"
+java DhtClient localhost cfg put foo "toast is tasty"
+echo get foo
+java DhtClient localhost cfg get foo
+
+killall java

@@ -1,0 +1,27 @@
+
+# The VM IP addresses are static and should not need to be changed
+VM1_IP="192.168.2.1"
+VM2_IP="192.168.2.2"
+VM3_IP="192.168.2.3"
+VM4_IP="192.168.4.1"
+VM5_IP="192.168.4.2"
+VM6_IP="192.168.4.3"
+VM7_IP="192.168.3.1"
+
+# The VM NET prefixes are static and should not need to be changed
+VM1_NET="192.168.2.0"
+VM4_NET="192.168.4.0"
+VM7_NET="192.168.3.0"
+VM_NET="192.168.0.0"
+
+# The VM MAC addresses are dynamic and will need to be changed for each
+# experiment. They should be static during a reservation, even across
+# commits. But across reservations they will potentially change
+# Fill in your MAC addresses below:
+VM1_MAC="54:01:0c:07:01:00"
+VM2_MAC="54:01:0c:05:01:00"
+VM3_MAC="54:01:0c:06:01:00"
+VM4_MAC="54:01:0c:04:01:00"
+VM5_MAC="54:01:0c:01:01:00"
+VM6_MAC="54:01:0c:02:01:00"
+VM7_MAC="54:01:0c:08:01:00"

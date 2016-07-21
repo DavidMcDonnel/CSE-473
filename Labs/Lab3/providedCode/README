@@ -1,0 +1,38 @@
+DhtServer.java contains a partial implementation of the DhtServer.
+You will need to add DhtClient.
+
+DhtPacket contains a partial implementation of a utility class that
+is helpful for handling DHT packets.
+
+Pair is a utility class for a generic pair of objects.
+
+script0 is a bash script you can use for testing a single DhtServer.
+you are encouraged to use it for your initial debugging.
+
+script1 is a bash script you can use for testing multi-server
+configurtations. Again, feel free to use it for debugging.
+
+script2 is designed for use in ONL. When running in ONL, you may
+sometimes find it necessary to abort a run of script2. The easiest
+way to do this is to first type CTRL-Z to interrupt the running
+script. This will display a message with the script's "job number'
+in square brackets (often, you'll see it as [1]). To actually kill
+the script, type
+
+	kill %N
+
+where N is the integer job number. Now, this will NOT kill any java programs
+that are running on other onl servers you may be using. To kill these
+as well, use the killit script, by typing
+
+	./killit
+
+You may get some warning messages, but you can ignore these.
+
+When running in ONL, make a point to notice the traffic charts,
+showing traffic moving between the routers. This is just an easy
+way to see if the expected network activity is happening while the
+script is running. If the traffic seems to stop prematurely,
+it can indicate a problem with your code or with the testbed.
+
+

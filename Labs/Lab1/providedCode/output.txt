@@ -1,0 +1,38 @@
+java MapClient Davids-MacBook-Pro.local 31357 put foo bar
+error:unrecognizable input:put:foo
+java MapClient Davids-MacBook-Pro.local 31357 put who hah
+updated:who
+java MapClient Davids-MacBook-Pro.local 31357 put goodbye world
+error:unrecognizable input:put:goodbye
+java MapClient Davids-MacBook-Pro.local 31357 get foo
+no match
+java MapClient Davids-MacBook-Pro.local 31357 get who
+success:hah
+java MapClient Davids-MacBook-Pro.local 31357 swap who foo
+no match
+java MapClient Davids-MacBook-Pro.local 31357 get foo
+no match
+java MapClient Davids-MacBook-Pro.local 31357 get who
+no match
+java MapClient Davids-MacBook-Pro.local 31357 remove who
+no match
+java MapClient Davids-MacBook-Pro.local 31357 get who
+no match
+java MapClient Davids-MacBook-Pro.local 31357 get goodbye
+no match
+java MapClient Davids-MacBook-Pro.local 31357 got goodbye
+error:unrecognizable input:got:good
+java MapClient Davids-MacBook-Pro.local 31357 pat goodbye world
+error:unrecognizable input:pat:goodbye:world
+java MapClient Davids-MacBook-Pro.local 31357 get bar
+no match
+java MapClient Davids-MacBook-Pro.local 31357 put foo toast is tasty
+error:unrecognizable input:put:foo:
+java MapClient Davids-MacBook-Pro.local 31357 get foo
+no match
+java MapClient Davids-MacBook-Pro.local 31357 swap who
+error:unrecognizable input:swap:who
+java MapClient Davids-MacBook-Pro.local 31357 get
+error:unrecognizable input:get
+java MapClient Davids-MacBook-Pro.local 31357 put foo
+error:unrecognizable input:put:foo

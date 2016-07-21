@@ -1,0 +1,21 @@
+#! /bin/bash
+iperfBw=$1
+dropProb=0
+delta=.001
+source /users/onl/.topology
+
+PWD=`pwd`
+
+echo "dropProb=" $dropProb " delta=" $delta
+
+ssh $h7x1 "cd ${PWD}; java TestMonitor h7x1 11313 ${dropProb} \
+    ${delta} 10 >srvOut1 &"
+ssh $h5x2 /usr/bin/iperf -c h6x1 -u -b ${iperfBw}m -l 200 -t 10 &
+ssh $h4x2 "cd ${PWD}; java TestMonitor h4x2 0 ${dropProb} \
+    ${delta} 10 h7x1 11313 >cliOut1"
+sleep 2
+echo "************** client report ****************"
+cat cliOut1
+sleep 5
+echo "************** server report ****************"
+cat srvOut1

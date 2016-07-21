@@ -1,0 +1,2832 @@
+{\rtf1\ansi\ansicpg1252\cocoartf1348\cocoasubrtf170
+{\fonttbl\f0\froman\fcharset0 Times-Roman;\f1\fmodern\fcharset0 Courier;\f2\fmodern\fcharset0 Courier-Bold;
+\f3\fswiss\fcharset0 Helvetica;}
+{\colortbl;\red255\green255\blue255;}
+{\info
+{\title CS/EE 260}
+{\subject }
+{\doccomm }
+{\author diana}
+{\*\company Washington University}
+{\keywords }}\vieww18740\viewh14980\viewkind1\viewscale150
+\deftab720
+\pard\pardeftab720\sb120\sa120\pardirnatural\qc
+
+\f0\i\fs28 \cf0 \
+\pard\pardeftab720\sb120\sa120\pardirnatural
+
+\b\fs22 \cf0 \
+Part A (30 points). 
+\i0\b0 Place a copy of the completed source code for 
+\i DhtServer
+\i0 . Highlight your changes by making them. Remember to also place a complete copy in the repository before you make your final commit. 
+\i Your
+\i0  committed version should have no extraneous 
+\i print
+\i0  statements.
+\i\b \
+\pard\tx360\tx720\tx1080\tx1440\tx1800\tx2160\tx2520\tx2880\tx3240\tx3600\pardeftab720\pardirnatural
+
+\f1\i0\b0\fs20 \cf0 paste your code here\
+\
+//David McDonnel\
+//CSE 473 John Dehart\
+//10/21/15\
+//Lab3\
+/** Server for simple distributed hash table that stores (key,value) strings.\
+ *  \
+ *  usage: DhtServer myIp numRoutes cfgFile [ cache ] [ debug ] [ predFile ]\
+ *  \
+ *  myIp	is the IP address to use for this server's sock\
+ *  numRoutes	is the max number of nodes allowed in the DHT's routing table;\
+ *  		typically lg(numNodes)\
+ *  cfgFile	is the name of a file in which the server writes the IP\
+ *		address and port number of its sock\
+ *  cache	is an optional argument; if present it is the literal string\
+ *		"cache"; when cache is present, the caching feature of the\
+ *		server is enabled; otherwise it is not\
+ *  debug	is an optional argument; if present it is the literal string\
+ *		"debug"; when debug is present, a copy of every packet received\
+ *		and sent is printed on stdout\
+ *  predFile	is an optional argument specifying the configuration file of\
+ *		this node's predecessor in the DHT; this file is used to obtain\
+ *		the IP address and port number of the precessor's sock,\
+ *		allowing this node to join the DHT by contacting predecessor\
+ *  \
+ *  The DHT uses UDP packets containing ASCII text. Here's an example of the\
+ *  UDP payload for a get request from a client.\
+ *  \
+ *  CSE473 DHTPv0.2015\
+ *  type:get\
+ *  key:dungeons\
+ *  tag:12345\
+ *  ttl:100\
+ *  \
+ *  The first line is just an identifying string that is required in every\
+ *  DHT packet. The remaining lines all start with a keyword and :, usually\
+ *  followed by some additional text. Here, the type field specifies that\
+ *  this is a get request; the key field specifies the key to be looked up;\
+ *  the tag is a client-specified tag that is returned in the response; and\
+ *  can be used by the client to match responses with requests; the ttl is\
+ *  decremented by every DhtServer and if <0, causes the packet to be discarded.\
+ *  \
+ *  Possible responses to the above request include:\
+ *  \
+ *  CSE473 DHTPv0.2015\
+ *  type:success\
+ *  key:dungeons\
+ *  value:dragons\
+ *  tag:12345\
+ *  ttl:95\
+ *  \
+ *  or\
+ *  \
+ *  CSE473 DHTPv0.2015\
+ *  type:no match\
+ *  key:dungeons\
+ *  tag:12345\
+ *  ttl:95\
+ *  \
+ *  Put requests are formatted similarly, but in this case the client typically\
+ *  specifies a value field (omitting the value field causes the pair with the\
+ *  specified key to be removed).\
+ *  \
+ *  The packet type "failure" is used to indicate an error of some sort;\
+ *  in this case, the "reason" field provides an explanation of the failure.\
+ *  Other packet types are listed below. The "join" type is used by a server\
+ *  to join an existing DHT. The "transfer" is used to transfer (key,value)\
+ *  pairs to a newly added server.\
+ *  \
+ *  Other fields and their use are described briefly below\
+ *  \
+ *  clientAdr 	is used to specify the IP address and port number of the client\
+ *  	  	that sent a particular request; it is added to a request packet\
+ *  	  	by the first server to receive the request, before forwarding\
+ *  	  	the packet to another node in the DHT; an example of the format\
+ *  	  	is 123.45.67.89:51349\
+ *  relayAdr  	is used to specify the IP address and port number of the first\
+ *  	  	server to receive a request packet from the client; it is added\
+ *  	  	to the packet by the first server before forwarding the packet\
+ *  hashRange 	is a pair of integers separated by a colon, specifying a range\
+ *  	  	of hash indices; it is included in the response to a "join"\
+ *  	  	packet, to inform the new DHT server of the set of nodes\
+ *  	  	it is responsible for\
+ *  succInfo  	is the IP address and port number of a server, followed by its\
+ *  	  	first hash index; this information is included in the response\
+ *  	  	to a join packet to inform the new DHT server about its\
+ *		immediate successor; an example of the format is\
+ *		123.45.6.7:5678:987654321\
+ *  senderInfo 	is the IP address and port number of a DHT server, followed by\
+ *  	  	its first hash index; this information is sent by a DHT to \
+ *  	  	provide routing information that can be used by another\
+ */\
+\
+import java.io.*;\
+import java.net.*;\
+import java.util.*;\
+\
+public class DhtServer \{\
+	private static int numRoutes;	// number of routes in routing table\
+	private static boolean cacheOn;	// enables caching when true\
+	private static boolean debug;	// enables debug messages when true\
+\
+	private static HashMap<String,String> map;	// key/value pairs\
+	private static HashMap<String,String> cache;	// cached pairs\
+	private static List<Pair<InetSocketAddress,Integer>> rteTbl;\
+\
+	private static DatagramSocket sock;\
+	private static InetSocketAddress myAdr;\
+	private static InetSocketAddress predecessor; // DHT predecessor\
+	private static Pair<InetSocketAddress,Integer> succInfo; // successor\
+	private static Pair<Integer,Integer> hashRange; // my DHT hash range\
+	private static int sendTag;		// tag for new outgoing packets\
+\
+	/** Main method for DHT server.\
+	 *  Processes command line arguments, initializes data, joins DHT,\
+	 *  then starts processing requests from clients.\
+	 */\
+	public static void main(String[] args) \{\
+		// process command-line arguments\
+		if (args.length < 3) \{\
+			System.err.println("usage: DhtServer myIp numRoutes " +\
+					   "cfgFile [debug] [ predFile ] ");\
+			System.exit(1);\
+		\}\
+		numRoutes = Integer.parseInt(args[1]);\
+		String cfgFile = args[2];\
+		cacheOn = debug = false;\
+		String predFile = null;\
+		for (int i = 3; i < args.length; i++) \{\
+			if (args[i].equals("cache")) cacheOn = true;\
+			else if (args[i].equals("debug")) debug = true;\
+			else predFile = args[i];\
+		\}\
+		\
+		// open sock for receiving packets\
+		// write ip and port to config file\
+		// read predecessor's ip/port from predFile (if there is one)\
+		InetAddress myIp = null; sock = null; predecessor = null;\
+		try \{	\
+			myIp = InetAddress.getByName(args[0]);\
+			sock = new DatagramSocket(0,myIp);\
+			BufferedWriter cfg =\
+				new BufferedWriter(\
+				    new OutputStreamWriter(\
+					new FileOutputStream(cfgFile),\
+					"US-ASCII"));\
+			cfg.write("" +	myIp.getHostAddress() + " " +\
+					sock.getLocalPort());\
+			cfg.newLine();\
+			cfg.close();\
+			if (predFile != null) \{\
+				BufferedReader pred =\
+					new BufferedReader(\
+					    new InputStreamReader(\
+						new FileInputStream(predFile),\
+						"US-ASCII"));\
+				String s = pred.readLine();\
+				String[] chunks = s.split(" ");\
+				predecessor = new InetSocketAddress(\
+					chunks[0],Integer.parseInt(chunks[1]));\
+			\}\
+		\} catch(Exception e) \{\
+			System.err.println("usage: DhtServer myIp numRoutes " +\
+					   "cfgFile [ cache ] [ debug ] " +\
+					   "[ predFile ] ");\
+			System.exit(1);\
+		\}\
+		myAdr = new InetSocketAddress(myIp,sock.getLocalPort());\
+		\
+		// initialize data structures	\
+		map = new HashMap<String,String>();\
+		cache = new HashMap<String,String>();\
+		rteTbl = new LinkedList<Pair<InetSocketAddress,Integer>>();\
+\
+		// join the DHT (if not the first node)\
+		hashRange = new Pair<Integer,Integer>(0,Integer.MAX_VALUE);\
+		succInfo = null;\
+		if (predecessor != null) \{\
+			join(predecessor);\
+		\} else \{\
+			succInfo = new Pair<InetSocketAddress,Integer>(myAdr,0);\
+		\}\
+\
+		// start processing requests from clients\
+		Packet p = new Packet();\
+		Packet reply = new Packet();\
+		InetSocketAddress sender = null;\
+		sendTag = 1;\
+		while (true) \{\
+			try \{ sender = p.receive(sock,debug);\
+			\} catch(Exception e) \{\
+				System.err.println("received packet failure");\
+				continue;\
+			\}\
+			if (sender == null) \{\
+				System.err.println("received packet failure");\
+				continue;\
+			\}\
+			if (!p.check()) \{\
+				reply.clear();\
+                		reply.type = "failure";\
+                		reply.reason = p.reason;\
+                		reply.tag = p.tag;\
+                		reply.ttl = p.ttl;\
+                		reply.send(sock,sender,debug);\
+                		continue;\
+			\}\
+			handlePacket(p,sender);\
+		\}\
+	\}\
+\
+	/** Hash a string, returning a 32 bit integer.\
+	 *  @param s is a string, typically the key from some get/put operation.\
+	 *  @return and integer hash value in the interval [0,2^31).\
+	 */\
+	public static int hashit(String s) \{\
+		while (s.length() < 16) s += s;\
+		byte[] sbytes = null;\
+		try \{ sbytes = s.getBytes("US-ASCII"); \
+		\} catch(Exception e) \{\
+			System.out.println("illegal key string");\
+			System.exit(1);\
+		\}\
+		int i = 0;\
+		int h = 0x37ace45d;\
+		while (i+1 < sbytes.length) \{\
+			int x = (sbytes[i] << 8) | sbytes[i+1];\
+			h *= x;\
+			int top = h & 0xffff0000;\
+			int bot = h & 0xffff;\
+			h = top | (bot ^ ((top >> 16)&0xffff));\
+			i += 2;\
+		\}\
+		if (h < 0) h = -(h+1);\
+		return h;\
+	\}\
+	\
+	/** Join an existing DHT.\
+	 *  @param predAdr is the sock address of a server in the DHT,\
+	 *  \
+	 *  that becomes the predecessor of this node.\
+	 *  This function sends a join packet, waits for a reply,\
+	 *  containting a range of hash values and the node's successor.\
+	 *  This function also adds routes to rteTbl\
+	 */\
+	public static void join(InetSocketAddress predAdr) \{\
+		Packet jPkt =  new Packet();\
+		jPkt.type = "join";\
+		jPkt.tag = sendTag++;\
+		jPkt.send(sock,predAdr,debug);\
+		Packet reply = new Packet();\
+		while(true)\{\
+			InetSocketAddress remote = reply.receive(sock,debug);\
+			if (remote.equals(predAdr)) break;\
+		\}\
+		if(!reply.check())\{\
+			System.err.println("DhtServer:join: failed while "\
+					+ "trying to join\\n" + reply.reason);\
+			System.exit(1);\
+		\}\
+		if(!reply.type.equals("success") || reply.tag!=jPkt.tag)\{\
+			System.err.println("DhtServer:join: failed while "\
+			+ "trying to join dht, received packet from prospective "\
+			+ "predecessor: " + reply.toString());\
+			System.exit(1);\
+		\}\
+		hashRange = reply.hashRange;\
+		succInfo = reply.succInfo;\
+		addRoute(succInfo);\
+	\}\
+	\
+	/** Handle a join packet from a prospective DHT node.\
+	 *  @param p is the received join packet\
+	 *  @param succAdr is the sock address of the host that\
+	 *  sent the join packet (the new successor)\
+	 *\
+	 *  This node halves it's hash values and gives the new \
+	 *  node a hash range and successor. Updates previous successor's\
+	 *  new predecessor to the server. Adds a route to the new successor.\
+	 *  Transfers key value pairs to the new node if the pairs are in range.\
+	 */\
+	public static void handleJoin(Packet p, InetSocketAddress succAdr) \{\
+		p.type = "success";\
+		int left = hashRange.left.intValue();\
+		int right = hashRange.right.intValue();\
+		int updateRight = (right-left)/2;\
+		updateRight+=left;\
+		p.hashRange = new Pair<Integer,Integer>(updateRight+1,right);\
+		hashRange.right = new Integer(updateRight);\
+		Pair<InetSocketAddress,Integer> newSucc = \
+			new Pair<InetSocketAddress,Integer>(succAdr,updateRight+1);\
+		if (succInfo.left != myAdr) \{\
+			Packet updPkt = new Packet();\
+			updPkt.type = "update";\
+			updPkt.tag = sendTag++;\
+			updPkt.send(sock,succInfo.left,debug);\
+		\}\
+		p.succInfo = succInfo;\
+		succInfo = newSucc;\
+		p.send(sock,succAdr,debug);\
+		addRoute(succInfo);\
+		Packet transPkt = new Packet();\
+		transPkt.type = "transfer";\
+		Iterator i = map.entrySet().iterator();\
+		while (i.hasNext())\{\
+			Map.Entry pair = (Map.Entry) i.next();\
+			String k = (String) pair.getKey();\
+			if (hashit(k) > updateRight)\{\
+				transPkt.key = k;\
+				transPkt.val = (String) pair.getValue();\
+				transPkt.tag = sendTag++;\
+				transPkt.send(sock,succAdr,debug);\
+				i.remove();\
+			\}\
+		\}\
+\
+	\}\
+	\
+	/** Handle a get packet.\
+	 *  @param p is a get packet\
+	 *  @param senderAdr is the the sock address of the sender\
+	 *\
+	 *  If this node is responsible for this key (or this response is cached),\
+	 *  it looks it up, converts p to response packet \
+	 *  and sends it to either the relay\
+	 *  server or the client if none exists.\
+	 */\
+	public static void handleGet(Packet p, InetSocketAddress senderAdr) \{\
+		// this version is incomplete; you will have to extend\
+		// it to support caching\
+		InetSocketAddress replyAdr;\
+		int hash = hashit(p.key);\
+		int left = hashRange.left.intValue();\
+		int right = hashRange.right.intValue();\
+		if (left <= hash && hash <= right) \{\
+			// respond to request using map\
+			if (p.relayAdr != null) \{\
+				replyAdr = p.relayAdr;\
+				p.senderInfo = new \
+				    Pair<InetSocketAddress,Integer>(myAdr,left);\
+			\} else \{\
+				replyAdr = senderAdr;\
+			\}\
+			if (map.containsKey(p.key)) \{\
+				p.type = "success"; p.val = map.get(p.key);\
+			\} else \{\
+				p.type = "no match";\
+			\}\
+			p.send(sock,replyAdr,debug);\
+		\} else if (cacheOn && cache.containsKey(p.key))\{\
+			p.type = "success";\
+			p.val = cache.get(p.key);\
+			if(p.relayAdr != null)\{\
+				replyAdr = p.relayAdr;\
+				p.senderInfo = new Pair<InetSocketAddress,Integer>(\
+						myAdr,hashRange.left);\
+			\}else\{\
+				replyAdr = senderAdr;\
+			\}\
+			p.send(sock,replyAdr,debug);\
+		\} else \{\
+			// forward around DHT\
+			if (p.relayAdr == null) \{\
+				p.relayAdr = myAdr; p.clientAdr = senderAdr;\
+			\}\
+			forward(p,hash);\
+		\}\
+	\}\
+	\
+	/** Handle a put packet.\
+	 *  @param p is a put packet\
+	 *  @param senderAdr is the the sock address of the sender\
+	 *  \
+	 *  If this node is responsible for this key, it performs \
+	 *  the put in its local Map, converts p to a response packet,\
+	 *  sends it to the relay server or the client if none exists,\
+	 *  otherwise if this key is in the node's cache, it removes the \
+	 *  cached key value pair\
+	 */\
+	public static void handlePut(Packet p, InetSocketAddress senderAdr) \{\
+		InetSocketAddress replyAdr;\
+		int hash = hashit(p.key);\
+		int left = hashRange.left.intValue();\
+		int right = hashRange.right.intValue();\
+		if (left<=hash && hash<=right)\{\
+			if(p.relayAdr!=null)\{\
+				replyAdr = p.relayAdr;\
+				p.senderInfo = new Pair<InetSocketAddress,Integer>(\
+						myAdr,hashRange.left);\
+			\}else\{\
+				replyAdr = senderAdr;\
+			\}\
+			if (p.val == null)\{\
+				if(map.remove(p.key)==null)\{\
+					p.type = "failure";\
+					p.reason = "key pair does not exist";\
+				\}else\{\
+					p.type = "success";\
+				\}\
+			\}else\{\
+				map.put(p.key,p.val);\
+				p.type = "success";\
+			\}\
+			p.send(sock,replyAdr,debug);\
+		\}else\{\
+			if(cacheOn && cache.containsKey(p.key))\{\
+				cache.remove(p.key);\
+			\}\
+			if(p.relayAdr==null)\{\
+				p.relayAdr=myAdr;\
+				p.clientAdr=senderAdr;\
+			\}\
+			forward(p,hash);\
+		\}\
+	\}\
+	\
+	/** Handle a transfer packet.\
+	 *  @param p is a transfer packet\
+	 *  @param senderAdr is the the address (ip:port) of the sender\
+	 *  \
+	 *  If this node is responsible for this key, it adds it to its \
+	 *  local Map.\
+	 */\
+	public static void handleXfer(Packet p, InetSocketAddress senderAdr) \{\
+		int hash = hashit(p.key);\
+		if(hashRange.left.intValue()<=hash\
+		&& hash<=hashRange.right.intValue())\{\
+			map.put(p.key,p.val);\
+		\}\
+	\}\
+	\
+	/** Handle a reply packet.\
+	 *  @param p is a reply packet, more specifically, a packet of type\
+	 *  "success", "failure" or "no match"\
+	 *  @param senderAdr is the the address (ip:port) of the sender\
+	 *  \
+	 *  The packet is forwarded to the client specified in the \
+	 *  clientADr field of the packet, stripped of internal fields.\
+	 *  If success packet is recieved, the key value pair is added to the \
+	 *  local cache.\
+	 */\
+	public static void handleReply(Packet p, InetSocketAddress senderAdr) \{\
+		p.relayAdr=null;\
+		InetSocketAddress client = p.clientAdr;\
+		p.clientAdr=null;\
+		p.senderInfo=null;\
+		p.send(sock,client,debug);\
+		if(cacheOn && p.type.equals("success") \
+		&& p.key!=null && p.val!=null)\{\
+			cache.put(p.key,p.val);\
+		\}\
+	\}\
+	\
+	/** Handle packets received from clients or other servers\
+	 *  @param p is a packet\
+	 *  @param senderAdr is the address (ip:port) of the sender\
+	 */\
+	public static void handlePacket(Packet p, InetSocketAddress senderAdr) \{\
+		if (p.senderInfo != null) addRoute(p.senderInfo);\
+		if (p.type.equals("get")) \{\
+			handleGet(p,senderAdr);\
+		\} else if (p.type.equals("put")) \{\
+			handlePut(p, senderAdr);\
+		\} else if (p.type.equals("transfer")) \{\
+			handleXfer(p, senderAdr);\
+		\} else if (p.type.equals("success") ||\
+			   p.type.equals("no match") ||\
+		     	   p.type.equals("failure")) \{\
+			handleReply(p, senderAdr);\
+		\} else if (p.type.equals("join")) \{\
+			handleJoin(p, senderAdr);\
+		\}\
+	\}\
+	\
+	/** Add an entry to the route tabe.\
+	 *  @param newRoute is a pair (addr,hash) where addr is the sock\
+	 *  address for some server and hash is the first hash in that\
+	 *  server's range\
+	 *  If the number of entries in the table exceeds the max\
+	 *  number allowed, the first entry that does not refer to\
+	 *  the successor of this server, is removed.\
+	 *  If debug is true and the set of stored routes does change,\
+	 *  print the string "rteTbl=" + rteTbl. (IMPORTANT)\
+	 */\
+	public static void addRoute(Pair<InetSocketAddress,Integer> newRoute)\{\
+		for(Pair<InetSocketAddress,Integer> i:rteTbl)\{\
+			if(i.equals(newRoute))return;\
+		\}\
+		rteTbl.add(newRoute);\
+		if(rteTbl.size()<=numRoutes)\{\
+			if(debug) System.out.println("rteTbl= " + rteTbl);\
+			return;\
+		\}\
+		Pair<InetSocketAddress,Integer> drop = null;\
+		for(Pair<InetSocketAddress,Integer> i:rteTbl)\{\
+			if(!i.equals(succInfo))\{\
+				drop = i; break;\
+			\}\
+		\}\
+		rteTbl.remove(drop);\
+		if (debug && !drop.equals(newRoute))\{\
+			System.out.println("rteTbl= " + rteTbl);\
+		\}\
+	\}\
+	\
+	/** Forward a packet using the local routing table.\
+	 *  @param p is a packet to be forwarded\
+	 *  @param hash is the hash of the packet's key field\
+	 *  \
+	 *  This method selects a server from its route table that is\
+	 *  "closest" to the target of this packet (based on hash).\
+	 *  If firstHash is the first hash in a server's range, then\
+	 *  we seek to minimize the difference hash-firstHash, where\
+	 *  the difference is interpreted modulo the range of hash values.\
+	 *  IMPORTANT POINT - handle "wrap-around" correctly. \
+	 *  Once a server is selected, p is sent to that server.\
+	 */\
+	public static void forward(Packet p, int hash) \{\
+		Pair<InetSocketAddress,Integer> closeMatch = null;\
+		int closeDiff = 0;\
+		for(Pair<InetSocketAddress,Integer> i : rteTbl)\{\
+			int diff = hash-i.right;\
+			if (diff<0)\{\
+				diff+=Integer.MAX_VALUE;\
+				diff++;\
+			\}\
+			if(closeMatch==null || diff<closeDiff)\{\
+				closeMatch = i;\
+				closeDiff = diff;\
+			\}\
+		\}\
+		p.send(sock,closeMatch.left,debug);\
+	\}\
+\}\
+\
+\
+\
+\
+\
+\
+\pard\pardeftab720\sb120\sa120\pardirnatural
+
+\f0\fs22 \cf0 \page 
+\i\b Part B (10 points). 
+\i0\b0 Place a copy of the completed source code for the 
+\i Packet 
+\i0 class here; highlight your changes by making them 
+\b bold
+\i .
+\i0\b0  Include a complete copy in the repository before you make your final commit. 
+\i Your
+\i0  committed version should have no extraneous 
+\i print
+\i0  statements.\
+\pard\tx360\tx720\tx1080\tx1440\tx1800\tx2160\tx2520\tx2880\tx3240\tx3600\pardeftab720\pardirnatural
+
+\f1\fs20 \cf0 paste your code here\
+\
+//David McDonnel\
+//CSE 473 John Dehart\
+//10/21/15\
+//Lab3\
+import java.io.*;\
+import java.net.*;\
+import java.util.*;\
+\
+/** Class for working with DHT packets. */\
+public class Packet \{\
+	// packet fields - note: all are public\
+	public String type;		// packet type\
+	public int ttl;			// time-to-live\
+	public String key;		// DHT key string\
+	public String val;		// DHT value string\
+	public String reason;		// reason for a failure\
+	public InetSocketAddress clientAdr; // address of original client\
+	public InetSocketAddress relayAdr; // address of first DHT server\
+	public int tag;			// tag used to identify packet\
+	public Pair<Integer,Integer> hashRange;	// range of hash values\
+	public Pair<InetSocketAddress,Integer> senderInfo;// address, first hash\
+	public Pair<InetSocketAddress,Integer> succInfo; // address, first hash\
+\
+	/** Constructor, initializes fields to default values. */\
+	public Packet() \{ clear(); \}\
+\
+	/** Initialize all packet fields.\
+	 *  Initializes all fields with a standard initial value\
+	 *  or makes them undefined.\
+ 	 */\
+	public void clear() \{\
+		type = null; ttl = 100; key = null; val = null;\
+		reason = null; clientAdr = null; relayAdr = null;\
+		tag = -1; hashRange = null;\
+		senderInfo = null; succInfo = null;\
+	\}\
+\
+	/** Pack attributes defining packet fields into buffer.\
+	 *  Fails if the packet type is undefined or if the resulting\
+	 *  buffer exceeds the allowed length of 1400 bytes.\
+	 *  @return null on failure, otherwise a byte array\
+	 *  containing the packet payload.\
+	 */\
+	public byte[] pack() \{\
+		if (type == null)  return null;\
+		byte[] buf;\
+		try \{ buf = toString().getBytes("US-ASCII");\
+		\} catch(Exception e) \{ return null; \}\
+		if (buf.length > 1400) return null;\
+		return buf;\
+	\}\
+\
+	/** Unpack attributes defining packet fields from buffer.\
+	 *  @param buf is a byte array containing the DHT packet\
+	 *  (or if you like, the payload of a UDP packet).\
+	 *  @param bufLen is the number of valid bytes in buf\
+	 */\
+	public boolean unpack(byte[] buf, int bufLen) \{\
+		// convert buf to a string\
+		String s; \
+		try \{ s = new String(buf,0,bufLen,"US-ASCII");\
+		\} catch(Exception e) \{ return false; \}\
+\
+		// divide into lines and check the first line\
+		String[] lines = s.split("\\n");\
+		if (!lines[0].equals("CSE473 DHTPv0.2015")) return false;\
+\
+		//process remaining lines\
+		for (int i = 1; i < lines.length; i++) \{\
+			String[] chunks = lines[i].split(":",2);\
+			if (chunks.length != 2) return false;\
+			// process the line\
+			String left = chunks[0];\
+			String right = chunks[1];\
+			if (left.equals("type")) \{\
+				type = right;\
+			\} else if (left.equals("ttl")) \{\
+				ttl = Integer.parseInt(right);\
+			\} else if (left.equals("key"))\{\
+				key = right;\
+			\} else if (left.equals("val"))\{\
+				val = right;\
+			\} else if (left.equals("reason"))\{\
+				reason = right;\
+			\} else if (left.equals("clientAdr")) \{\
+				chunks = right.split(":");\
+				if (chunks.length != 2) return false;\
+				clientAdr = new InetSocketAddress(chunks[0],\
+						Integer.parseInt(chunks[1]));\
+			\} else if (left.equals("relayAdr"))\{\
+				chunks = right.split(":");\
+				if (chunks.length!=2) return false;\
+				relayAdr = new InetSocketAddress(chunks[0],\
+					 Integer.parseInt(chunks[1]));\
+			\} else if (left.equals("tag"))\{\
+				tag = Integer.parseInt(right);\
+			\} else if (left.equals("hashRange"))\{\
+				chunks = right.split(":");\
+				hashRange = new Pair<Integer,Integer>(\
+					Integer.parseInt(chunks[0]),\
+					Integer.parseInt(chunks[1]));\
+			\} else if (left.equals("succInfo")) \{\
+				chunks = right.split(":");\
+				if (chunks.length != 3) return false;\
+				String ip = chunks[0];\
+				int port = Integer.parseInt(chunks[1]);\
+				int hash = Integer.parseInt(chunks[2]);\
+				succInfo = new\
+					Pair<InetSocketAddress,Integer>(\
+					new InetSocketAddress(ip,port),hash);\
+			\} else if (left.equals("senderInfo"))\{\
+				chunks = right.split(":");\
+				if (chunks.length!=3) return false;\
+				String ip = chunks[0];\
+				int port = Integer.parseInt(chunks[1]);\
+				int hash = Integer.parseInt(chunks[2]);\
+				senderInfo = new Pair<InetSocketAddress,Integer>(\
+					new InetSocketAddress(ip,port),hash);\
+			\} else \{\
+				// ignore lines that don't match defined field\
+			\}\
+		\}\
+		return true;\
+	\}\
+\
+	/** Basic validity checking for received packets.\
+	 *  @return true on success, false on failure;\
+	 *  on failure, place an explanatory String in the reason field\
+	 *  of the packet\
+	 */\
+	public boolean check() \{\
+		reason = null;\
+		if (type == null) \{\
+			reason = "every packet must include a type";\
+			return false;\
+		\} else if ((type.equals("get") || type.equals("put")) && \
+		     	 (key == null || tag == -1)) \{\
+			reason = "gets and puts require key and tag";\
+			return false;\
+		\}\
+		return true;\
+	\}\
+\
+	/** Create String representation of packet.\
+	 *  The resulting String is produced using the defined\
+	 *  attributes and is formatted with one field per line,\
+	 *  allowing it to be used as the actual buffer contents.\
+	 */\
+	public String toString() \{\
+		StringBuffer s = new StringBuffer("CSE473 DHTPv0.2015\\n");\
+		if (type != null) \{\
+			s.append("type:"); s.append(type); s.append("\\n");\
+		\}\
+		if (key != null) \{\
+			s.append("key:"); s.append(key); s.append("\\n");\
+		\}\
+		if (relayAdr != null) \{\
+			s.append("relayAdr:");\
+			s.append(relayAdr.getAddress().getHostAddress());\
+			s.append(":"); s.append(relayAdr.getPort());\
+			s.append("\\n");\
+		\}\
+		if (hashRange != null) \{\
+			s.append("hashRange:"); s.append(hashRange.left);\
+			s.append(":"); s.append(hashRange.right);\
+			s.append("\\n");\
+		\}\
+		if (senderInfo != null) \{\
+			s.append("senderInfo:");\
+			s.append(senderInfo.left.getAddress().getHostAddress());\
+			s.append(":"); s.append(senderInfo.left.getPort());\
+			s.append(":"); s.append(senderInfo.right);\
+			s.append("\\n");\
+		\}\
+		if (val!=null)\{\
+			s.append("val:"); s.append(val); s.append("\\n");\
+		\}\
+		if (tag!=-1)\{\
+			s.append("tag:"); s.append(tag); s.append("\\n");\
+		\}\
+		if (reason!=null)\{\
+			s.append("reason:"); s.append(reason); s.append("\\n");\
+		\}\
+		if (clientAdr!=null)\{\
+			s.append("clientAdr:");\
+			s.append(clientAdr.getAddress().getHostAddress());\
+			s.append(":"); s.append(clientAdr.getPort());\
+			s.append("\\n");\
+		\}\
+		if (succInfo!=null)\{\
+			s.append("succInfo:");\
+			s.append(succInfo.left.getAddress().getHostAddress());\
+			s.append(":"); s.append(succInfo.left.getPort());\
+			s.append(":"); s.append(succInfo.right); s.append("\\n");\
+		\}\
+		if (ttl != -1) \{\
+			s.append("ttl:"); s.append(ttl); s.append("\\n");\
+		\}\
+		return s.toString();\
+	\}\
+		\
+	/** Send the packet to a specified destination.\
+	 *  Packs the various packet fields into a buffer\
+	 *  before sending. Does no validity checking.\
+	 *  @param sock is the socket on which the packet is sent\
+	 *  @param dest is the socket address of the destination\
+	 *  debug is a flag; if true, the packet is printed before it is sent\
+	 *  @return true on success, false on failure\
+	 */\
+	public boolean send(DatagramSocket sock, InetSocketAddress dest,\
+			    boolean debug) \{\
+		if (debug) \{\
+			System.out.println("" + sock.getLocalSocketAddress() +\
+				" sending packet to " + dest + "\\n" +\
+				toString());\
+			System.out.flush();\
+		\}\
+		byte[] buf = pack();\
+		if (buf == null) return false;\
+                DatagramPacket pkt = new DatagramPacket(buf, buf.length);\
+		pkt.setSocketAddress(dest);\
+		try \{ sock.send(pkt); \} catch(Exception e) \{ return false; \}\
+		return true;\
+	\}\
+		\
+	/** Get the next packet on the socket.\
+	 *\
+	 * Receives the next datagram from the socket and\
+	 * unpacks it.\
+	 * @param sock is the socket on which the packet is received\
+	 * @param debug is a flag; if it is true, the received\
+	 * packet is printed\
+	 * @return the sender's socket address on success and null on failure\
+	 */\
+	public InetSocketAddress receive(DatagramSocket sock, boolean debug) \{\
+		clear();\
+		byte[] buf = new byte[2000];\
+		DatagramPacket pkt = new DatagramPacket(buf, buf.length);\
+		try \{\
+			sock.receive(pkt);\
+		\} catch(Exception e) \{\
+			System.out.println("receive exception: " + e);\
+			return null;\
+		\}\
+	\
+		if (!unpack(buf,pkt.getLength())) \{\
+			System.out.println("error while unpacking packet");\
+			return null;\
+		\}\
+		ttl--;\
+		if (debug) \{\
+			System.out.println(sock.getLocalSocketAddress() +\
+				" received packet from " + \
+				pkt.getSocketAddress() + "\\n" + toString());\
+			System.out.flush();\
+		\}\
+		if (ttl < 0) return null;\
+		return (InetSocketAddress) pkt.getSocketAddress();\
+	\}\
+\}\
+\
+\
+\
+\pard\pardeftab720\sb120\sa120\pardirnatural
+
+\f0\i\b\fs22 \cf0 \
+
+\i0\b0  \
+\page 
+\i\b Part C (10 points).
+\i0\b0  Place a copy of your source code for 
+\i DhtClient
+\i0  here. 
+\i\b \
+\pard\tx360\tx720\tx1080\tx1440\tx1800\tx2160\tx2520\tx2880\tx3240\tx3600\pardeftab720\pardirnatural
+
+\f1\i0\b0\fs20 \cf0 paste your code here\
+\
+//David McDonnel\
+//CSE 473 John Dehart\
+//10/21/15\
+//Lab3\
+\
+/** DhtClient: client for a dynamic hash table\
+ * usage: DhtClient myIp server cmd [key [value]]\
+ *\
+ * This program sends a command to a remote DhtServer\
+ * in a UDP datagram then waits for a reply packet.\
+ *\
+ * myIp - address for client port\
+ * server - configuration file for a DhtServer (Ip address and port)\
+ * cmd - can be "get" or "put"\
+ * key, value - optional String inputs\
+ *\
+ */\
+\
+import java.io.*;\
+import java.net.*;\
+import java.util.*;\
+\
+public class DhtClient \{\
+	public static void main(String[] args)\{\
+		if (args.length<3 || args.length>5)\{\
+			System.err.println("usage: DhtClient myIp server "\
+					+ "cmd [ key ] [ value ]");\
+			System.exit(1);\
+		\}\
+		String cmd = args[2];\
+		String key = null;\
+		String value = null;\
+		if (args.length>3) key = args[3];\
+		if (args.length>4) value = args[4];\
+\
+		//open sock and read remote server address\
+		InetAddress myIp = null;\
+		DatagramSocket sock = null;\
+		InetSocketAddress serverAdr = null;\
+		try\{\
+			myIp = InetAddress.getByName(args[0]);\
+			sock = new DatagramSocket(0,myIp);\
+			BufferedReader config = new BufferedReader(\
+					new InputStreamReader(\
+						new FileInputStream(args[1]),\
+						"US-ASCII"));\
+			String line = config.readLine();\
+			String[] chunks = line.split(" ");\
+			serverAdr = new InetSocketAddress(\
+					chunks[0],Integer.parseInt(chunks[1]));\
+		\} catch (Exception e)\{\
+			System.err.println("usage: DhtClient myIp server "\
+					+ "cmd [ key ] [ value ]");\
+			System.exit(1);\
+		\}\
+		Packet p = new Packet();\
+		p.type=cmd; p.key=key; p.val=value; p.tag=12345;\
+		p.send(sock,serverAdr,true);\
+		Packet reply = new Packet();\
+		reply.receive(sock,true);\
+	\}\
+\}\
+\
+\
+\
+\
+\
+\pard\pardeftab720\sb120\sa120\pardirnatural
+
+\f0\fs22 \cf0 \page 
+\i\b Part D (10 points).
+\i0\b0  Use the provided 
+\i script0
+\i0  to test your client and server on a single computer. Of  course, you will first need to compile your java code. You can use Eclipse or simply use 
+\i javac
+\i0  like this:\
+\pard\tx360\tx720\tx1080\tx1440\tx1800\tx2160\tx2520\tx2880\tx3240\tx3600\pardeftab720\pardirnatural
+
+\f1\fs20 \cf0 	javac Packet.java\
+	javac DhtClient.java\
+	javac DhtServer.java\
+\pard\pardeftab720\sb120\sa120\pardirnatural
+
+\f0\fs22 \cf0 When you test using 
+\i script0
+\i0 , note that this script uses just a single server, so it does not test many of the features of your DHT, but it will allow you to check a significant fraction of the code. You may do this testing on any Unix (including MacOS) or Linux computer (shell.cec.wustl.edu or onl.wustl.edu). Read the 
+\i script0
+\i0  file to make sure you understand what it does, then type\
+\pard\tx360\tx720\tx1080\tx1440\tx1800\tx2160\tx2520\tx2880\tx3240\tx3600\pardeftab720\pardirnatural
+
+\f1\fs20 \cf0 	./script0\
+\pard\pardeftab720\sb120\sa120\pardirnatural
+
+\f0\fs22 \cf0 to run it. Check the output carefully. When you are satisfied that things are working correctly, paste a copy of the output below.\
+\pard\tx360\tx720\tx1080\tx1440\tx1800\tx2160\tx2520\tx2880\tx3240\tx3600\pardeftab720\pardirnatural
+
+\f1\fs20 \cf0 paste your output here\
+\
+put foo bar\
+/127.0.0.1:60727 sending packet to /127.0.0.1:50016\
+CSE473 DHTPv0.2015\
+type:put\
+key:foo\
+val:bar\
+tag:12345\
+ttl:100\
+\
+/127.0.0.1:60727 received packet from /127.0.0.1:50016\
+CSE473 DHTPv0.2015\
+type:success\
+key:foo\
+val:bar\
+tag:12345\
+ttl:98\
+\
+put who hah\
+/127.0.0.1:50341 sending packet to /127.0.0.1:50016\
+CSE473 DHTPv0.2015\
+type:put\
+key:who\
+val:hah\
+tag:12345\
+ttl:100\
+\
+/127.0.0.1:50341 received packet from /127.0.0.1:50016\
+CSE473 DHTPv0.2015\
+type:success\
+key:who\
+val:hah\
+tag:12345\
+ttl:98\
+\
+get foo\
+/127.0.0.1:53100 sending packet to /127.0.0.1:50016\
+CSE473 DHTPv0.2015\
+type:get\
+key:foo\
+tag:12345\
+ttl:100\
+\
+/127.0.0.1:53100 received packet from /127.0.0.1:50016\
+CSE473 DHTPv0.2015\
+type:success\
+key:foo\
+val:bar\
+tag:12345\
+ttl:98\
+\
+get who\
+/127.0.0.1:63599 sending packet to /127.0.0.1:50016\
+CSE473 DHTPv0.2015\
+type:get\
+key:who\
+tag:12345\
+ttl:100\
+\
+/127.0.0.1:63599 received packet from /127.0.0.1:50016\
+CSE473 DHTPv0.2015\
+type:success\
+key:who\
+val:hah\
+tag:12345\
+ttl:98\
+\
+get goodbye\
+/127.0.0.1:56058 sending packet to /127.0.0.1:50016\
+CSE473 DHTPv0.2015\
+type:get\
+key:goodbye\
+tag:12345\
+ttl:100\
+\
+/127.0.0.1:56058 received packet from /127.0.0.1:50016\
+CSE473 DHTPv0.2015\
+type:no match\
+key:goodbye\
+tag:12345\
+ttl:98\
+\
+get\
+/127.0.0.1:49891 sending packet to /127.0.0.1:50016\
+CSE473 DHTPv0.2015\
+type:get\
+tag:12345\
+ttl:100\
+\
+/127.0.0.1:49891 received packet from /127.0.0.1:50016\
+CSE473 DHTPv0.2015\
+type:failure\
+tag:12345\
+reason:gets and puts require key and tag\
+ttl:98\
+\
+get bar\
+/127.0.0.1:58039 sending packet to /127.0.0.1:50016\
+CSE473 DHTPv0.2015\
+type:get\
+key:bar\
+tag:12345\
+ttl:100\
+\
+/127.0.0.1:58039 received packet from /127.0.0.1:50016\
+CSE473 DHTPv0.2015\
+type:no match\
+key:bar\
+tag:12345\
+ttl:98\
+\
+put foo toast is tasty\
+/127.0.0.1:64293 sending packet to /127.0.0.1:50016\
+CSE473 DHTPv0.2015\
+type:put\
+key:foo\
+val:toast is tasty\
+tag:12345\
+ttl:100\
+\
+/127.0.0.1:64293 received packet from /127.0.0.1:50016\
+CSE473 DHTPv0.2015\
+type:success\
+key:foo\
+val:toast is tasty\
+tag:12345\
+ttl:98\
+\
+get foo\
+/127.0.0.1:59396 sending packet to /127.0.0.1:50016\
+CSE473 DHTPv0.2015\
+type:get\
+key:foo\
+tag:12345\
+ttl:100\
+\
+/127.0.0.1:59396 received packet from /127.0.0.1:50016\
+CSE473 DHTPv0.2015\
+type:success\
+key:foo\
+val:toast is tasty\
+tag:12345\
+ttl:98\
+\
+\
+\
+\
+\
+\pard\pardeftab720\sb120\sa120\pardirnatural
+
+\f0\fs22 \cf0 Where is the TTL decremented?\
+The TTL is decremented for responses.\
+Explain the TTL value you see printed out by the DhtClient when it receives a response.\
+\pard\tx360\tx720\tx1080\tx1440\tx1800\tx2160\tx2520\tx2880\tx3240\tx3600\pardeftab720\pardirnatural
+
+\f1\fs20 \cf0 The value was decremented twice because it was sent to two different nodes.\
+\
+\
+\
+\pard\pardeftab720\sb120\sa120\pardirnatural
+
+\f0\fs22 \cf0 \page 
+\i\b Part E (20 points).
+\i0\b0  In this part, you are to use the provided 
+\i script1
+\i0  to test your DHT on a single computer. This script uses four servers, so it will exercise the routing features of your DHT. In the questions that follow, we will refer to the servers by number. The first server that is started is number 0. Its successor in the DHT (after all servers have been started) is number 1. The next is number 2, and so forth. Read the 
+\i script1
+\i0  file and make sure you understand what it does. Notice that each server produces a log file labeled with its number. Now, type\
+\pard\tx360\tx720\tx1080\tx1440\tx1800\tx2160\tx2520\tx2880\tx3240\tx3600\pardeftab720\pardirnatural
+
+\f1\fs20 \cf0 	./script1 1 >out1\
+\pard\pardeftab720\sb120\sa120\pardirnatural
+
+\f0\fs22 \cf0 to run it. Note that this version limits the servers to a single route, so there are no shortcut routes at this point. When you are satisfied that your results are correct, paste the initial portion of the 
+\i out1
+\i0  file below. Specifically, include everything up through the first \'93
+\i get who
+\i0 \'94 operation (include the reply for that operation).\
+\pard\tx360\tx720\tx1080\tx1440\tx1800\tx2160\tx2520\tx2880\tx3240\tx3600\pardeftab720\pardirnatural
+
+\f1\fs20 \cf0 paste your output here\
+\
+put foo bar\
+/127.0.0.1:54061 sending packet to /127.0.0.1:55309\
+CSE473 DHTPv0.2015\
+type:put\
+key:foo\
+val:bar\
+tag:12345\
+ttl:100\
+\
+/127.0.0.1:54061 received packet from /127.0.0.1:55309\
+CSE473 DHTPv0.2015\
+type:success\
+key:foo\
+val:bar\
+tag:12345\
+ttl:98\
+\
+put who hah\
+/127.0.0.1:63171 sending packet to /127.0.0.1:51766\
+CSE473 DHTPv0.2015\
+type:put\
+key:who\
+val:hah\
+tag:12345\
+ttl:100\
+\
+/127.0.0.1:63171 received packet from /127.0.0.1:51766\
+CSE473 DHTPv0.2015\
+type:success\
+key:who\
+val:hah\
+tag:12345\
+ttl:94\
+\
+put junk mail\
+/127.0.0.1:49964 sending packet to /127.0.0.1:63510\
+CSE473 DHTPv0.2015\
+type:put\
+key:junk\
+val:mail\
+tag:12345\
+ttl:100\
+\
+/127.0.0.1:49964 received packet from /127.0.0.1:63510\
+CSE473 DHTPv0.2015\
+type:success\
+key:junk\
+val:mail\
+tag:12345\
+ttl:95\
+\
+put blue moose\
+/127.0.0.1:63625 sending packet to /127.0.0.1:60708\
+CSE473 DHTPv0.2015\
+type:put\
+key:blue\
+val:moose\
+tag:12345\
+ttl:100\
+\
+/127.0.0.1:63625 received packet from /127.0.0.1:60708\
+CSE473 DHTPv0.2015\
+type:success\
+key:blue\
+val:moose\
+tag:12345\
+ttl:98\
+\
+get foo\
+/127.0.0.1:54076 sending packet to /127.0.0.1:63510\
+CSE473 DHTPv0.2015\
+type:get\
+key:foo\
+tag:12345\
+ttl:100\
+\
+/127.0.0.1:54076 received packet from /127.0.0.1:63510\
+CSE473 DHTPv0.2015\
+type:success\
+key:foo\
+val:bar\
+tag:12345\
+ttl:96\
+\
+get who\
+/127.0.0.1:62389 sending packet to /127.0.0.1:60708\
+CSE473 DHTPv0.2015\
+type:get\
+key:who\
+tag:12345\
+ttl:100\
+\
+/127.0.0.1:62389 received packet from /127.0.0.1:60708\
+CSE473 DHTPv0.2015\
+type:success\
+key:who\
+val:hah\
+tag:12345\
+ttl:95\
+\
+\pard\pardeftab720\sb120\sa120\pardirnatural
+
+\f0\fs22 \cf0 By examining the 
+\i out1
+\i0  file, determine the port number used by the server that holds the (
+\i key
+\i0 ,
+\i value
+\i0 ) pair (
+\i blue
+\i0 , 
+\i moose
+\i0 ) and explain how you determined your answer. Hint: look at the 
+\i ttl
+\i0  fields in the packets returned to the client.\
+60708, this TTL was only decremented by 2 so it was sent directly to the process (port) and directly back.\
+
+\i \
+
+\i0 Note the last eight 
+\i get
+\i0  operations in the 
+\i out1 
+\i0 file. Based on the 
+\i ttls
+\i0  of the reply packets, determine each server\'92s successor. For this question, identify the servers by their port numbers and explain how you determined your answer.\
+\pard\tx360\tx720\tx1080\tx1440\tx1800\tx2160\tx2520\tx2880\tx3240\tx3600\pardeftab720\pardirnatural
+
+\f1\fs20 \cf0 63510-> 51766-> 55309 -> 63510-> 60708\
+\pard\tx360\tx720\tx1080\tx1440\tx1800\tx2160\tx2520\tx2880\tx3240\tx3600\pardeftab720\pardirnatural
+\cf0 \
+ttl:95->ttl:94->ttl:98->ttl:96->ttl:95\
+\pard\pardeftab720\sb120\sa120\pardirnatural
+
+\f0\fs22 \cf0 Paste the initial portion of the 
+\i log2
+\i0  file below (everything up through the first \'93
+\i get blue
+\i0 \'94 operation).\
+\pard\tx360\tx720\tx1080\tx1440\tx1800\tx2160\tx2520\tx2880\tx3240\tx3600\pardeftab720\pardirnatural
+
+\f1\fs20 \cf0 paste here\
+\
+/127.0.0.1:60708 sending packet to /127.0.0.1:55309\
+CSE473 DHTPv0.2015\
+type:join\
+tag:0\
+ttl:100\
+\
+/127.0.0.1:60708 received packet from /127.0.0.1:55309\
+CSE473 DHTPv0.2015\
+type:success\
+hashRange:1073741824:2147483647\
+tag:0\
+succInfo:127.0.0.1:55309:0\
+ttl:98\
+\
+rteTbl= [(/127.0.0.1:55309,0)]\
+/127.0.0.1:60708 received packet from /127.0.0.1:55309\
+CSE473 DHTPv0.2015\
+type:update\
+tag:1\
+ttl:99\
+\
+/127.0.0.1:60708 received packet from /127.0.0.1:63510\
+CSE473 DHTPv0.2015\
+type:join\
+tag:0\
+ttl:99\
+\
+/127.0.0.1:60708 sending packet to /127.0.0.1:55309\
+CSE473 DHTPv0.2015\
+type:update\
+tag:1\
+ttl:100\
+\
+/127.0.0.1:60708 sending packet to /127.0.0.1:63510\
+CSE473 DHTPv0.2015\
+type:success\
+hashRange:1610612736:2147483647\
+tag:0\
+succInfo:127.0.0.1:55309:0\
+ttl:99\
+\
+rteTbl= [(/127.0.0.1:63510,1610612736)]\
+/127.0.0.1:60708 received packet from /127.0.0.1:51766\
+CSE473 DHTPv0.2015\
+type:put\
+key:who\
+relayAdr:127.0.0.1:51766\
+val:hah\
+tag:12345\
+clientAdr:127.0.0.1:63171\
+ttl:98\
+\
+/127.0.0.1:60708 sending packet to /127.0.0.1:63510\
+CSE473 DHTPv0.2015\
+type:put\
+key:who\
+relayAdr:127.0.0.1:51766\
+val:hah\
+tag:12345\
+clientAdr:127.0.0.1:63171\
+ttl:98\
+\
+/127.0.0.1:60708 received packet from /127.0.0.1:63625\
+CSE473 DHTPv0.2015\
+type:put\
+key:blue\
+val:moose\
+tag:12345\
+ttl:99\
+\
+/127.0.0.1:60708 sending packet to /127.0.0.1:63625\
+CSE473 DHTPv0.2015\
+type:success\
+key:blue\
+val:moose\
+tag:12345\
+ttl:99\
+\
+/127.0.0.1:60708 received packet from /127.0.0.1:62389\
+CSE473 DHTPv0.2015\
+type:get\
+key:who\
+tag:12345\
+ttl:99\
+\
+/127.0.0.1:60708 sending packet to /127.0.0.1:63510\
+CSE473 DHTPv0.2015\
+type:get\
+key:who\
+relayAdr:127.0.0.1:60708\
+tag:12345\
+clientAdr:127.0.0.1:62389\
+ttl:99\
+\
+/127.0.0.1:60708 received packet from /127.0.0.1:55309\
+CSE473 DHTPv0.2015\
+type:success\
+key:who\
+relayAdr:127.0.0.1:60708\
+senderInfo:127.0.0.1:55309:0\
+val:hah\
+tag:12345\
+clientAdr:127.0.0.1:62389\
+ttl:96\
+\
+/127.0.0.1:60708 sending packet to /127.0.0.1:62389\
+CSE473 DHTPv0.2015\
+type:success\
+key:who\
+val:hah\
+tag:12345\
+ttl:96\
+\
+/127.0.0.1:60708 received packet from /127.0.0.1:51766\
+CSE473 DHTPv0.2015\
+type:get\
+key:blue\
+relayAdr:127.0.0.1:51766\
+tag:12345\
+clientAdr:127.0.0.1:59420\
+ttl:98\
+\
+/127.0.0.1:60708 sending packet to /127.0.0.1:51766\
+CSE473 DHTPv0.2015\
+type:success\
+key:blue\
+relayAdr:127.0.0.1:51766\
+senderInfo:127.0.0.1:60708:1073741824\
+val:moose\
+tag:12345\
+clientAdr:127.0.0.1:59420\
+ttl:98\
+\
+\
+\pard\pardeftab720\sb120\sa120\pardirnatural
+
+\f0\fs22 \cf0 Approximately how many values are in the hash range of server number 2 when it first joins the DHT? How many are in its range after the last server has joined the DHT?\
+
+\i 500 million after server 2 joins. And still 500 million after the last server joins.\
+
+\i0 Type the command \'93
+\f1 cat cfg[0-3]
+\f0 \'94 and paste the output below. Note that the port numbers shown here are those used by your servers in the order 0, 1, 2, 3.\
+\pard\tx360\tx720\tx1080\tx1440\tx1800\tx2160\tx2520\tx2880\tx3240\tx3600\pardeftab720\pardirnatural
+
+\f1\fs20 \cf0 paste here\
+127.0.0.1 55309\
+\pard\tx360\tx720\tx1080\tx1440\tx1800\tx2160\tx2520\tx2880\tx3240\tx3600\pardeftab720\pardirnatural
+\cf0 127.0.0.1 51766\
+127.0.0.1 60708\
+127.0.0.1 63510\
+\pard\tx360\tx720\tx1080\tx1440\tx1800\tx2160\tx2520\tx2880\tx3240\tx3600\pardeftab720\pardirnatural
+\cf0 \
+\pard\pardeftab720\sb120\sa120\pardirnatural
+
+\f0\fs22 \cf0 Type the command \'93
+\f1 grep ttl:9 out1
+\f0 \'94 and paste a copy of the output below. Note that this shows the 
+\i ttls
+\i0  in the returned packets, allowing you to infer the number of hops that each packet took on its way through the DHT and back.\
+\pard\tx360\tx720\tx1080\tx1440\tx1800\tx2160\tx2520\tx2880\tx3240\tx3600\pardeftab720\pardirnatural
+
+\f1\fs20 \cf0 paste here\
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\pardirnatural
+
+\f0\fs24 \cf0 \CocoaLigature0 ttl:98\
+ttl:94\
+ttl:95\
+ttl:98\
+ttl:96\
+ttl:95\
+ttl:98\
+ttl:96\
+ttl:98\
+ttl:94\
+ttl:95\
+ttl:98\
+ttl:94\
+ttl:96\
+ttl:98\
+ttl:95\
+ttl:94\
+ttl:96\
+ttl:98\
+ttl:95
+\f1\fs20 \CocoaLigature1 \
+\pard\tx360\tx720\tx1080\tx1440\tx1800\tx2160\tx2520\tx2880\tx3240\tx3600\pardeftab720\pardirnatural
+\cf0 \
+\pard\pardeftab720\sb120\sa120\pardirnatural
+
+\f0\fs22 \cf0 Find the first 
+\i get
+\i0  operation that took the longest number of hops before returning to the client. What were the key and what result was returned?\
+
+\i The first longest hops was t/l:94  which corresponds to (who,hah)\
+
+\i0 List the servers that the packet passed through, using the server numbers 0, 1, 2, 3. \
+
+\i 2->3->0->1->2\
+
+\i0 Now, re-rerun script1 by typing\
+\pard\tx360\tx720\tx1080\tx1440\tx1800\tx2160\tx2520\tx2880\tx3240\tx3600\pardeftab720\pardirnatural
+
+\f1\fs20 \cf0 	./script1 2 >out2\
+\pard\pardeftab720\sb120\sa120\pardirnatural
+
+\f0\fs22 \cf0 Paste the initial part of the 
+\i out2
+\i0  file below (everything up through the first \'93
+\i get who
+\i0 \'94 operation). Note that this allows shortcut routes, so you should expect that at least some of the packets will require fewer hops to reach the target server.
+\i \
+\pard\tx360\tx720\tx1080\tx1440\tx1800\tx2160\tx2520\tx2880\tx3240\tx3600\pardeftab720\pardirnatural
+
+\f1\i0\fs20 \cf0 paste here\
+\
+put foo bar\
+/127.0.0.1:51126 sending packet to /127.0.0.1:56507\
+CSE473 DHTPv0.2015\
+type:put\
+key:foo\
+val:bar\
+tag:12345\
+ttl:100\
+\
+/127.0.0.1:51126 received packet from /127.0.0.1:56507\
+CSE473 DHTPv0.2015\
+type:success\
+key:foo\
+val:bar\
+tag:12345\
+ttl:98\
+\
+put who hah\
+/127.0.0.1:61238 sending packet to /127.0.0.1:49722\
+CSE473 DHTPv0.2015\
+type:put\
+key:who\
+val:hah\
+tag:12345\
+ttl:100\
+\
+/127.0.0.1:61238 received packet from /127.0.0.1:49722\
+CSE473 DHTPv0.2015\
+type:success\
+key:who\
+val:hah\
+tag:12345\
+ttl:95\
+\
+put junk mail\
+/127.0.0.1:63376 sending packet to /127.0.0.1:56002\
+CSE473 DHTPv0.2015\
+type:put\
+key:junk\
+val:mail\
+tag:12345\
+ttl:100\
+\
+/127.0.0.1:63376 received packet from /127.0.0.1:56002\
+CSE473 DHTPv0.2015\
+type:success\
+key:junk\
+val:mail\
+tag:12345\
+ttl:95\
+\
+put blue moose\
+/127.0.0.1:61455 sending packet to /127.0.0.1:62080\
+CSE473 DHTPv0.2015\
+type:put\
+key:blue\
+val:moose\
+tag:12345\
+ttl:100\
+\
+/127.0.0.1:61455 received packet from /127.0.0.1:62080\
+CSE473 DHTPv0.2015\
+type:success\
+key:blue\
+val:moose\
+tag:12345\
+ttl:98\
+\
+get foo\
+/127.0.0.1:57535 sending packet to /127.0.0.1:56002\
+CSE473 DHTPv0.2015\
+type:get\
+key:foo\
+tag:12345\
+ttl:100\
+\
+/127.0.0.1:57535 received packet from /127.0.0.1:56002\
+CSE473 DHTPv0.2015\
+type:success\
+key:foo\
+val:bar\
+tag:12345\
+ttl:96\
+\
+get who\
+/127.0.0.1:64164 sending packet to /127.0.0.1:62080\
+CSE473 DHTPv0.2015\
+type:get\
+key:who\
+tag:12345\
+ttl:100\
+\
+/127.0.0.1:64164 received packet from /127.0.0.1:62080\
+CSE473 DHTPv0.2015\
+type:success\
+key:who\
+val:hah\
+tag:12345\
+ttl:96\
+\
+\
+\pard\pardeftab720\sb120\sa120\pardirnatural
+
+\f0\fs22 \cf0 Type the command \'93
+\f1 grep ttl:9 out2
+\f0 \'94 and paste the output below.\
+\pard\tx360\tx720\tx1080\tx1440\tx1800\tx2160\tx2520\tx2880\tx3240\tx3600\pardeftab720\pardirnatural
+
+\f1\fs20 \cf0 paste here\
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\pardirnatural
+
+\f0\fs24 \cf0 \CocoaLigature0 ttl:98\
+ttl:95\
+ttl:95\
+ttl:98\
+ttl:96\
+ttl:96\
+ttl:98\
+ttl:96\
+ttl:98\
+ttl:95\
+ttl:96\
+ttl:98\
+ttl:96\
+ttl:96\
+ttl:98\
+ttl:96\
+ttl:96\
+ttl:96\
+ttl:98\
+ttl:96
+\f1\fs20 \CocoaLigature1 \
+\pard\tx360\tx720\tx1080\tx1440\tx1800\tx2160\tx2520\tx2880\tx3240\tx3600\pardeftab720\pardirnatural
+\cf0 \
+\pard\pardeftab720\sb120\sa120\pardirnatural
+
+\f0\fs22 \cf0 Type the command \'93
+\f1 cat cfg[0-3]
+\f0 \'94 and paste the output below.\
+\pard\tx360\tx720\tx1080\tx1440\tx1800\tx2160\tx2520\tx2880\tx3240\tx3600\pardeftab720\pardirnatural
+
+\f1\fs20 \cf0 paste here\
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\pardirnatural
+
+\f0\fs24 \cf0 \CocoaLigature0 127.0.0.1 56507\
+127.0.0.1 49722\
+127.0.0.1 62080\
+127.0.0.1 56002
+\f1\fs20 \CocoaLigature1 \
+\pard\tx360\tx720\tx1080\tx1440\tx1800\tx2160\tx2520\tx2880\tx3240\tx3600\pardeftab720\pardirnatural
+\cf0 \
+\pard\pardeftab720\sb120\sa120\pardirnatural
+
+\f0\fs22 \cf0 Type the command \'93
+\f1 grep rteTbl log[0-3]
+\f0 \'94 and paste the output below.\
+\pard\tx360\tx720\tx1080\tx1440\tx1800\tx2160\tx2520\tx2880\tx3240\tx3600\pardeftab720\pardirnatural
+
+\f1\fs20 \cf0 paste here\
+
+\f2\b \
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\pardirnatural
+
+\f0\b0\fs24 \cf0 \CocoaLigature0 log0:rteTbl= [(/127.0.0.1:62080,1073741824)]\
+log0:rteTbl= [(/127.0.0.1:62080,1073741824), (/127.0.0.1:49722,536870912)]\
+log1:rteTbl= [(/127.0.0.1:62080,1073741824)]\
+log1:rteTbl= [(/127.0.0.1:62080,1073741824), (/127.0.0.1:56507,0)]\
+log2:rteTbl= [(/127.0.0.1:56507,0)]\
+log2:rteTbl= [(/127.0.0.1:56507,0), (/127.0.0.1:56002,1610612736)]\
+log3:rteTbl= [(/127.0.0.1:56507,0)]\
+log3:rteTbl= [(/127.0.0.1:56507,0), (/127.0.0.1:49722,536870912)]\
+log3:rteTbl= [(/127.0.0.1:56507,0), (/127.0.0.1:62080,1073741824)]
+\f2\b\fs20 \CocoaLigature1 \
+\pard\tx360\tx720\tx1080\tx1440\tx1800\tx2160\tx2520\tx2880\tx3240\tx3600\pardeftab720\pardirnatural
+\cf0 \
+\pard\pardeftab720\sb120\sa120\pardirnatural
+
+\f0\b0\fs22 \cf0 For each server, list the servers that it has routes to when the script finishes.\
+
+\i 0->1,1->0,1->3,3->0\
+
+\i0 Type the command \'93
+\f1 grep -B4 -A4 key:bar log[0-3]
+\f0 \'94 and paste the output below.\
+\pard\tx360\tx720\tx1080\tx1440\tx1800\tx2160\tx2520\tx2880\tx3240\tx3600\pardeftab720\pardirnatural
+
+\f1\fs20 \cf0 paste here\
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\pardirnatural
+
+\f0\fs24 \cf0 \CocoaLigature0 log1-\
+log1-/127.0.0.1:49722 received packet from /127.0.0.1:56002\
+log1-CSE473 DHTPv0.2015\
+log1-type:get\
+log1:key:bar\
+log1-relayAdr:127.0.0.1:56002\
+log1-tag:12345\
+log1-clientAdr:127.0.0.1:60328\
+log1-ttl:98\
+--\
+--\
+log1-\
+log1-/127.0.0.1:49722 sending packet to /127.0.0.1:62080\
+log1-CSE473 DHTPv0.2015\
+log1-type:get\
+log1:key:bar\
+log1-relayAdr:127.0.0.1:56002\
+log1-tag:12345\
+log1-clientAdr:127.0.0.1:60328\
+log1-ttl:98\
+--\
+--\
+log2-\
+log2-/127.0.0.1:62080 received packet from /127.0.0.1:49722\
+log2-CSE473 DHTPv0.2015\
+log2-type:get\
+log2:key:bar\
+log2-relayAdr:127.0.0.1:56002\
+log2-tag:12345\
+log2-clientAdr:127.0.0.1:60328\
+log2-ttl:97\
+--\
+--\
+log2-\
+log2-/127.0.0.1:62080 sending packet to /127.0.0.1:56002\
+log2-CSE473 DHTPv0.2015\
+log2-type:no match\
+log2:key:bar\
+log2-relayAdr:127.0.0.1:56002\
+log2-senderInfo:127.0.0.1:62080:1073741824\
+log2-tag:12345\
+log2-clientAdr:127.0.0.1:60328\
+--\
+--\
+log3-\
+log3-/127.0.0.1:56002 received packet from /127.0.0.1:60328\
+log3-CSE473 DHTPv0.2015\
+log3-type:get\
+log3:key:bar\
+log3-tag:12345\
+log3-ttl:99\
+log3-\
+log3-/127.0.0.1:56002 sending packet to /127.0.0.1:49722\
+--\
+--\
+log3-\
+log3-/127.0.0.1:56002 sending packet to /127.0.0.1:49722\
+log3-CSE473 DHTPv0.2015\
+log3-type:get\
+log3:key:bar\
+log3-relayAdr:127.0.0.1:56002\
+log3-tag:12345\
+log3-clientAdr:127.0.0.1:60328\
+log3-ttl:99\
+--\
+--\
+log3-\
+log3-/127.0.0.1:56002 received packet from /127.0.0.1:62080\
+log3-CSE473 DHTPv0.2015\
+log3-type:no match\
+log3:key:bar\
+log3-relayAdr:127.0.0.1:56002\
+log3-senderInfo:127.0.0.1:62080:1073741824\
+log3-tag:12345\
+log3-clientAdr:127.0.0.1:60328\
+--\
+--\
+log3-rteTbl= [(/127.0.0.1:56507,0), (/127.0.0.1:62080,1073741824)]\
+log3-/127.0.0.1:56002 sending packet to /127.0.0.1:60328\
+log3-CSE473 DHTPv0.2015\
+log3-type:no match\
+log3:key:bar\
+log3-tag:12345\
+log3-ttl:96\
+log3-\
+log3-/127.0.0.1:56002 received packet from /127.0.0.1:64483
+\f1\fs20 \CocoaLigature1 \
+\pard\tx360\tx720\tx1080\tx1440\tx1800\tx2160\tx2520\tx2880\tx3240\tx3600\pardeftab720\pardirnatural
+\cf0 \
+\pard\pardeftab720\sb120\sa120\pardirnatural
+
+\f0\fs22 \cf0 Use the output to determine the sequence of servers that the \'93
+\i get bar
+\i0 \'94 packet passed through. List them below, in the order that they handled the packet.\
+
+\i 56002->62080->49722-> 56002\
+
+\i0 Now, re-rerun script1 once more by typing\
+\pard\tx360\tx720\tx1080\tx1440\tx1800\tx2160\tx2520\tx2880\tx3240\tx3600\pardeftab720\pardirnatural
+
+\f1\fs20 \cf0 	./script1 2 cache >out2c\
+\pard\pardeftab720\sb120\sa120\pardirnatural
+
+\f0\fs22 \cf0 This enables the caching feature. Paste the 
+\i final
+\i0  portion of the 
+\i out2c
+\i0  file below (starting with the last \'93
+\i get foo
+\i0 \'94). 
+\i \
+\pard\tx360\tx720\tx1080\tx1440\tx1800\tx2160\tx2520\tx2880\tx3240\tx3600\pardeftab720\pardirnatural
+
+\f1\i0\fs20 \cf0 paste here\
+\
+get foo\
+/127.0.0.1:54640 sending packet to /127.0.0.1:51364\
+CSE473 DHTPv0.2015\
+type:get\
+key:foo\
+tag:12345\
+ttl:100\
+\
+/127.0.0.1:54640 received packet from /127.0.0.1:51364\
+CSE473 DHTPv0.2015\
+type:success\
+key:foo\
+val:toast is tasty\
+tag:12345\
+ttl:98\
+\
+get blue\
+/127.0.0.1:52316 sending packet to /127.0.0.1:52454\
+CSE473 DHTPv0.2015\
+type:get\
+key:blue\
+tag:12345\
+ttl:100\
+\
+/127.0.0.1:52316 received packet from /127.0.0.1:52454\
+CSE473 DHTPv0.2015\
+type:success\
+key:blue\
+val:moose\
+tag:12345\
+ttl:96\
+\
+get blue\
+/127.0.0.1:65173 sending packet to /127.0.0.1:65130\
+CSE473 DHTPv0.2015\
+type:get\
+key:blue\
+tag:12345\
+ttl:100\
+\
+/127.0.0.1:65173 received packet from /127.0.0.1:65130\
+CSE473 DHTPv0.2015\
+type:success\
+key:blue\
+val:moose\
+tag:12345\
+ttl:98\
+\
+get blue\
+/127.0.0.1:51978 sending packet to /127.0.0.1:50489\
+CSE473 DHTPv0.2015\
+type:get\
+key:blue\
+tag:12345\
+ttl:100\
+\
+/127.0.0.1:51978 received packet from /127.0.0.1:50489\
+CSE473 DHTPv0.2015\
+type:success\
+key:blue\
+val:moose\
+tag:12345\
+ttl:98\
+\
+get blue\
+/127.0.0.1:50436 sending packet to /127.0.0.1:51364\
+CSE473 DHTPv0.2015\
+type:get\
+key:blue\
+tag:12345\
+ttl:100\
+\
+/127.0.0.1:50436 received packet from /127.0.0.1:51364\
+CSE473 DHTPv0.2015\
+type:success\
+key:blue\
+val:moose\
+tag:12345\
+ttl:96\
+\
+get blue\
+/127.0.0.1:49406 sending packet to /127.0.0.1:52454\
+CSE473 DHTPv0.2015\
+type:get\
+key:blue\
+tag:12345\
+ttl:100\
+\
+/127.0.0.1:49406 received packet from /127.0.0.1:52454\
+CSE473 DHTPv0.2015\
+type:success\
+key:blue\
+val:moose\
+tag:12345\
+ttl:98\
+\
+get blue\
+/127.0.0.1:60589 sending packet to /127.0.0.1:65130\
+CSE473 DHTPv0.2015\
+type:get\
+key:blue\
+tag:12345\
+ttl:100\
+\
+/127.0.0.1:60589 received packet from /127.0.0.1:65130\
+CSE473 DHTPv0.2015\
+type:success\
+key:blue\
+val:moose\
+tag:12345\
+ttl:98\
+\
+get blue\
+/127.0.0.1:65529 sending packet to /127.0.0.1:50489\
+CSE473 DHTPv0.2015\
+type:get\
+key:blue\
+tag:12345\
+ttl:100\
+\
+/127.0.0.1:65529 received packet from /127.0.0.1:50489\
+CSE473 DHTPv0.2015\
+type:success\
+key:blue\
+val:moose\
+tag:12345\
+ttl:98\
+\
+get blue\
+/127.0.0.1:54979 sending packet to /127.0.0.1:51364\
+CSE473 DHTPv0.2015\
+type:get\
+key:blue\
+tag:12345\
+ttl:100\
+\
+/127.0.0.1:54979 received packet from /127.0.0.1:51364\
+CSE473 DHTPv0.2015\
+type:success\
+key:blue\
+val:moose\
+tag:12345\
+ttl:98\
+\
+\
+\
+\pard\pardeftab720\sb120\sa120\pardirnatural
+
+\f0\fs22 \cf0 Type the command \'93
+\f1 grep ttl:9 out2c
+\f0 \'94 and paste the output below.\
+\pard\tx360\tx720\tx1080\tx1440\tx1800\tx2160\tx2520\tx2880\tx3240\tx3600\pardeftab720\pardirnatural
+
+\f1\fs20 \cf0 paste here\
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\pardirnatural
+
+\f0\fs24 \cf0 \CocoaLigature0 ttl:98\
+ttl:95\
+ttl:95\
+ttl:98\
+ttl:96\
+ttl:96\
+ttl:98\
+ttl:96\
+ttl:98\
+ttl:95\
+ttl:96\
+ttl:98\
+ttl:96\
+ttl:98\
+ttl:98\
+ttl:96\
+ttl:98\
+ttl:98\
+ttl:98\
+ttl:98\
+
+\f1\fs20 \CocoaLigature1 \
+\pard\tx360\tx720\tx1080\tx1440\tx1800\tx2160\tx2520\tx2880\tx3240\tx3600\pardeftab720\pardirnatural
+\cf0 \
+\
+\pard\pardeftab720\sb120\sa120\pardirnatural
+
+\f0\fs22 \cf0 At the end of the run, are there are any servers that do not have the pair (
+\i blue
+\i0 , 
+\i moose
+\i0 ) in their cache? If so, which ones. In either case, how do you know?\
+
+\i Server 2 does not have it in its cache because server 2 is the responsible server for the blue moose pair. The last four ttls are all 98 meaning each server responded directly. Thus every server but the responsible server had it cached.\
+
+\b \page Part F (30 points).
+\i0\b0  In this part, you will test your DHT in ONL using multiple servers. Use the provided 
+\i onl
+\i0  configuration file. Once you have a committed experiment, proceed with the following directions.\
+In your lab3 directory on ONL where all your files are, type\
+\pard\tx360\tx720\tx1080\tx1440\tx1800\tx2160\tx2520\tx2880\tx3240\tx3600\pardeftab720\fi720\pardirnatural
+
+\f1\fs20 \cf0 ./script2 1 >out1\
+\pard\pardeftab720\sb120\sa120\pardirnatural
+
+\f0\fs22 \cf0 Read the script file to make sure you understand what it does. Note that it starts eight servers, but that two of the servers are started only after some 
+\i puts
+\i0  and 
+\i gets
+\i0  have been performed. \
+Type \'93
+\f1 cat cfg[0-7]
+\f0 \'94 and paste the output below.\
+\pard\tx360\tx720\tx1080\tx1440\tx1800\tx2160\tx2520\tx2880\tx3240\tx3600\pardeftab720\pardirnatural
+
+\f1\fs20 \cf0 paste here\
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\pardirnatural
+
+\f0\fs24 \cf0 \CocoaLigature0 192.168.7.1 59552\
+192.168.6.1 51778\
+192.168.3.2 43823\
+192.168.2.5 38355\
+192.168.2.4 42269\
+192.168.2.3 54378\
+192.168.1.1 56325\
+192.168.5.2 37363
+\f1\fs20 \CocoaLigature1 \
+\pard\tx360\tx720\tx1080\tx1440\tx1800\tx2160\tx2520\tx2880\tx3240\tx3600\pardeftab720\pardirnatural
+\cf0 \
+\
+\pard\pardeftab720\sb120\sa120\pardirnatural
+
+\f0\fs22 \cf0 Now, type \'93
+\f1 grep rteTbl log[0-7]
+\f0 \'94 and paste the output below.\
+\pard\tx360\tx720\tx1080\tx1440\tx1800\tx2160\tx2520\tx2880\tx3240\tx3600\pardeftab720\pardirnatural
+
+\f1\fs20 \cf0 paste here\
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\pardirnatural
+
+\f0\fs24 \cf0 \CocoaLigature0 log0:rteTbl= [(/192.168.2.4:42269,1073741824)]\
+log0:rteTbl= [(/192.168.3.2:43823,536870912)]\
+log0:rteTbl= [(/192.168.6.1:51778,268435456)]\
+log1:rteTbl= [(/192.168.3.2:43823,536870912)]\
+log2:rteTbl= [(/192.168.2.4:42269,1073741824)]\
+log2:rteTbl= [(/192.168.2.5:38355,805306368)]\
+log3:rteTbl= [(/192.168.2.4:42269,1073741824)]\
+log4:rteTbl= [(/192.168.7.1:59552,0)]\
+log4:rteTbl= [(/192.168.1.1:56325,1610612736)]\
+log4:rteTbl= [(/192.168.2.3:54378,1342177280)]\
+log5:rteTbl= [(/192.168.1.1:56325,1610612736)]\
+log6:rteTbl= [(/192.168.7.1:59552,0)]\
+log6:rteTbl= [(/192.168.5.2:37363,1879048192)]\
+log7:rteTbl= [(/192.168.7.1:59552,0)]
+\f1\fs20 \CocoaLigature1 \
+\pard\tx360\tx720\tx1080\tx1440\tx1800\tx2160\tx2520\tx2880\tx3240\tx3600\pardeftab720\pardirnatural
+\cf0 \
+
+\f2\b \
+\pard\pardeftab720\sb120\sa120\pardirnatural
+
+\f0\b0\fs22 \cf0 Are the final route values consistent with the contents of the configuration file? Explain why they are consistent, or if they are not, explain any discrepancies.\
+The route table order is the same as the order of the DHT servers.The last value in the route table for each server points to the next server in the DHT.  For instance, log1_7 points to 47099 which is server 7->0, log1_4 points to 43990 which is server 4->5 etc.. So the final route values are consistent with the config file.\
+
+\i \
+
+\i0 Next, type \'93
+\f1 grep ttl.9 out1
+\f0 \'94 and paste the output below.\
+\pard\tx360\tx720\tx1080\tx1440\tx1800\tx2160\tx2520\tx2880\tx3240\tx3600\pardeftab720\pardirnatural
+
+\f1\fs20 \cf0 paste here\
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\pardirnatural
+
+\f0\fs24 \cf0 \CocoaLigature0 ttl:98\
+ttl:92\
+ttl:95\
+ttl:93\
+ttl:96\
+ttl:98\
+ttl:94\
+ttl:93\
+ttl:95\
+ttl:96\
+ttl:94\
+ttl:93\
+ttl:94\
+ttl:96\
+ttl:95\
+ttl:98\
+ttl:94\
+ttl:94\
+ttl:96\
+ttl:98\
+ttl:95\
+ttl:98\
+ttl:95\
+ttl:95\
+ttl:95\
+ttl:98\
+ttl:91\
+ttl:98\
+ttl:94\
+ttl:96\
+ttl:98\
+ttl:93
+\f1\fs20 \CocoaLigature1 \
+\pard\tx360\tx720\tx1080\tx1440\tx1800\tx2160\tx2520\tx2880\tx3240\tx3600\pardeftab720\pardirnatural
+\cf0 \
+
+\f2\b \
+\
+\pard\pardeftab720\sb120\sa120\pardirnatural
+
+\f0\b0\fs22 \cf0 Did any of the 
+\i get
+\i0 /
+\i put
+\i0  requests get routed to all 8 servers? If not, what was the largest number of servers to handle any request? How many were handled by four or more servers?\
+No, if a request was handled by all 8 servers there would be a TTL of 90, but the smallest TTL is 91. The largest number of servers to handle a request is thus 7. 12 requests had a ttl of 94 or less (handled by four or more servers).\
+
+\i \
+
+\i0 Type \'93
+\f1 grep -B15 ttl.91 out1
+\f0 \'94 and paste the output below.\
+\pard\tx360\tx720\tx1080\tx1440\tx1800\tx2160\tx2520\tx2880\tx3240\tx3600\pardeftab720\pardirnatural
+
+\f1\fs20 \cf0 paste here\
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\pardirnatural
+
+\f0\fs24 \cf0 \CocoaLigature0 get slim\
+/192.168.4.2:56413 sending packet to /192.168.1.1:56325\
+CSE473 DHTPv0.2015\
+type:get\
+key:slim\
+tag:12345\
+ttl:100\
+\
+/192.168.4.2:56413 received packet from /192.168.1.1:56325\
+CSE473 DHTPv0.2015\
+type:success\
+key:slim\
+val:jim\
+tag:12345\
+ttl:91
+\f1\fs20 \CocoaLigature1 \
+\pard\tx360\tx720\tx1080\tx1440\tx1800\tx2160\tx2520\tx2880\tx3240\tx3600\pardeftab720\pardirnatural
+\cf0 \
+\pard\pardeftab720\sb120\sa120\pardirnatural
+
+\f0\fs22 \cf0 Type \'93
+\f1 grep -B15 ttl.94 out1
+\f0 \'94 and paste the output below.\
+\pard\tx360\tx720\tx1080\tx1440\tx1800\tx2160\tx2520\tx2880\tx3240\tx3600\pardeftab720\pardirnatural
+
+\f1\fs20 \cf0 paste here\
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\pardirnatural
+
+\f0\fs24 \cf0 \CocoaLigature0 get bar\
+/192.168.4.2:60441 sending packet to /192.168.7.1:59552\
+CSE473 DHTPv0.2015\
+type:get\
+key:bar\
+tag:12345\
+ttl:100\
+\
+/192.168.4.2:60441 received packet from /192.168.7.1:59552\
+CSE473 DHTPv0.2015\
+type:no match\
+key:bar\
+tag:12345\
+ttl:94\
+--\
+put slim jim\
+/192.168.4.2:60595 sending packet to /192.168.7.1:59552\
+CSE473 DHTPv0.2015\
+type:put\
+key:slim\
+val:jim\
+tag:12345\
+ttl:100\
+\
+/192.168.4.2:60595 received packet from /192.168.7.1:59552\
+CSE473 DHTPv0.2015\
+type:success\
+key:slim\
+val:jim\
+tag:12345\
+ttl:94\
+--\
+put chocolate fudge\
+/192.168.4.2:44752 sending packet to /192.168.2.4:42269\
+CSE473 DHTPv0.2015\
+type:put\
+key:chocolate\
+val:fudge\
+tag:12345\
+ttl:100\
+\
+/192.168.4.2:44752 received packet from /192.168.2.4:42269\
+CSE473 DHTPv0.2015\
+type:success\
+key:chocolate\
+val:fudge\
+tag:12345\
+ttl:94\
+--\
+\
+get flim\
+/192.168.4.2:45140 sending packet to /192.168.7.1:59552\
+CSE473 DHTPv0.2015\
+type:get\
+key:flim\
+tag:12345\
+ttl:100\
+\
+/192.168.4.2:45140 received packet from /192.168.7.1:59552\
+CSE473 DHTPv0.2015\
+type:success\
+key:flim\
+val:flam\
+tag:12345\
+ttl:94\
+\
+get flip\
+/192.168.4.2:33316 sending packet to /192.168.2.4:42269\
+CSE473 DHTPv0.2015\
+type:get\
+key:flip\
+tag:12345\
+ttl:100\
+\
+/192.168.4.2:33316 received packet from /192.168.2.4:42269\
+CSE473 DHTPv0.2015\
+type:success\
+key:flip\
+val:flop\
+tag:12345\
+ttl:94\
+--\
+\
+get chocolate\
+/192.168.4.2:51637 sending packet to /192.168.2.3:54378\
+CSE473 DHTPv0.2015\
+type:get\
+key:chocolate\
+tag:12345\
+ttl:100\
+\
+/192.168.4.2:51637 received packet from /192.168.2.3:54378\
+CSE473 DHTPv0.2015\
+type:success\
+key:chocolate\
+val:fudge\
+tag:12345\
+ttl:94\
+\pard\tx360\tx720\tx1080\tx1440\tx1800\tx2160\tx2520\tx2880\tx3240\tx3600\pardeftab720\pardirnatural
+
+\f1\fs20 \cf0 \CocoaLigature1 \
+\
+\pard\pardeftab720\sb120\sa120\pardirnatural
+
+\f0\fs22 \cf0 Type the command \'93
+\f1 grep -B3 -A4 transfer log0
+\f0 \'94 and paste the output below. \
+\pard\tx360\tx720\tx1080\tx1440\tx1800\tx2160\tx2520\tx2880\tx3240\tx3600\pardeftab720\pardirnatural
+
+\f1\fs20 \cf0 paste here\
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\pardirnatural
+
+\f0\fs24 \cf0 \CocoaLigature0 rteTbl= [(/192.168.6.1:51778,268435456)]\
+/192.168.7.1:59552 sending packet to /192.168.6.1:51778\
+CSE473 DHTPv0.2015\
+type:transfer\
+key:flip\
+val:flop\
+tag:3\
+ttl:100\
+\
+/192.168.7.1:59552 sending packet to /192.168.6.1:51778\
+CSE473 DHTPv0.2015\
+type:transfer\
+key:who\
+val:hah\
+tag:4\
+ttl:100
+\f1\fs20 \CocoaLigature1 \
+\pard\tx360\tx720\tx1080\tx1440\tx1800\tx2160\tx2520\tx2880\tx3240\tx3600\pardeftab720\pardirnatural
+\cf0 \
+\pard\pardeftab720\sb120\sa120\pardirnatural
+
+\f0\fs22 \cf0 Explain what the messages mean that appear in that output.\
+
+\i These are transfer packets going from server 0 to server 1 when server 1 joins the DHT. (flip,flop) and (who,hah) are transferred because their hashes are in server 1\'92s range.\
+
+\i0 Now, we\'92re going to re-run 
+\i script2
+\i0  using more routes. Type\
+\pard\tx360\tx720\tx1080\tx1440\tx1800\tx2160\tx2520\tx2880\tx3240\tx3600\pardeftab720\fi720\pardirnatural
+
+\f1\fs20 \cf0 ./script2 3 >out3\
+\pard\pardeftab720\sb120\sa120\pardirnatural
+
+\f0\fs22 \cf0 Type \'93
+\f1 cat cfg[0-7]
+\f0 \'94 and paste the output below.\
+\pard\tx360\tx720\tx1080\tx1440\tx1800\tx2160\tx2520\tx2880\tx3240\tx3600\pardeftab720\pardirnatural
+
+\f1\fs20 \cf0 paste here\
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\pardirnatural
+
+\f0\fs24 \cf0 \CocoaLigature0 192.168.7.1 49621\
+192.168.6.1 58264\
+192.168.3.2 36452\
+192.168.2.5 48918\
+192.168.2.4 60532\
+192.168.2.3 41754\
+192.168.1.1 44762\
+192.168.5.2 60564\
+
+\f1\fs20 \CocoaLigature1 \
+\pard\tx360\tx720\tx1080\tx1440\tx1800\tx2160\tx2520\tx2880\tx3240\tx3600\pardeftab720\pardirnatural
+\cf0 \
+\
+\pard\pardeftab720\sb120\sa120\pardirnatural
+
+\f0\fs22 \cf0 Now, type \'93
+\f1 grep rteTbl log[0-7]
+\f0 \'94 and paste the output below.\
+\pard\tx360\tx720\tx1080\tx1440\tx1800\tx2160\tx2520\tx2880\tx3240\tx3600\pardeftab720\pardirnatural
+
+\f1\fs20 \cf0 paste here\
+\
+log0:rteTbl= [(/192.168.2.4:60532,1073741824)]\
+log0:rteTbl= [(/192.168.2.4:60532,1073741824), (/192.168.3.2:36452,536870912)]\
+log0:rteTbl= [(/192.168.2.4:60532,1073741824), (/192.168.3.2:36452,536870912), (/192.168.6.1:58264,268435456)]\
+log1:rteTbl= [(/192.168.3.2:36452,536870912)]\
+log2:rteTbl= [(/192.168.2.4:60532,1073741824)]\
+log2:rteTbl= [(/192.168.2.4:60532,1073741824), (/192.168.2.5:48918,805306368)]\
+log2:rteTbl= [(/192.168.2.4:60532,1073741824), (/192.168.2.5:48918,805306368), (/192.168.7.1:49621,0)]\
+log2:rteTbl= [(/192.168.2.5:48918,805306368), (/192.168.7.1:49621,0), (/192.168.5.2:60564,1879048192)]\
+log2:rteTbl= [(/192.168.2.5:48918,805306368), (/192.168.5.2:60564,1879048192), (/192.168.2.4:60532,1073741824)]\
+log2:rteTbl= [(/192.168.2.5:48918,805306368), (/192.168.2.4:60532,1073741824), (/192.168.1.1:44762,1610612736)]\
+log3:rteTbl= [(/192.168.2.4:60532,1073741824)]\
+log3:rteTbl= [(/192.168.2.4:60532,1073741824), (/192.168.7.1:49621,0)]\
+log3:rteTbl= [(/192.168.2.4:60532,1073741824), (/192.168.7.1:49621,0), (/192.168.1.1:44762,1610612736)]\
+log4:rteTbl= [(/192.168.7.1:49621,0)]\
+log4:rteTbl= [(/192.168.7.1:49621,0), (/192.168.1.1:44762,1610612736)]\
+log4:rteTbl= [(/192.168.7.1:49621,0), (/192.168.1.1:44762,1610612736), (/192.168.2.3:41754,1342177280)]\
+log5:rteTbl= [(/192.168.1.1:44762,1610612736)]\
+log5:rteTbl= [(/192.168.1.1:44762,1610612736), (/192.168.7.1:49621,0)]\
+log6:rteTbl= [(/192.168.7.1:49621,0)]\
+log6:rteTbl= [(/192.168.7.1:49621,0), (/192.168.5.2:60564,1879048192)]\
+log6:rteTbl= [(/192.168.7.1:49621,0), (/192.168.5.2:60564,1879048192), (/192.168.2.4:60532,1073741824)]\
+log7:rteTbl= [(/192.168.7.1:49621,0)]\
+
+\f2\b \
+\
+\pard\pardeftab720\sb120\sa120\pardirnatural
+
+\f0\b0\fs22 \cf0 Draw a picture of the eight servers arranged in a circle (label them 0-7). Draw an arrow from server 
+\i i
+\i0  to server 
+\i j
+\i0  if 
+\i i
+\i0  has a direct route to 
+\i j
+\i0  at the end of the run.\
+\pard\pardeftab720\sb120\sa120\pardirnatural\qc
+
+\i \cf0 paste diagram here\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\pardirnatural
+
+\f3\i0\fs24 \cf0 {{\NeXTGraphic DHT diagram.png \width6700 \height5200
+}¬}
+\f0\i\fs22 \
+\
+\
+\pard\pardeftab720\sb120\sa120\pardirnatural
+
+\i0 \cf0 Note that some servers have more \'93incoming routes\'94 than others. Explain why this happens.\
+
+\i A server only has an incoming route if it is the responsible server for a request. It sends the response back through a relay server which then may create a shortcut route. This shows that the servers getting more requests are the ones with the most incoming routes.\
+
+\i0 Next, type \'93
+\f1 grep ttl.9 out3
+\f0 \'94 and paste the output below.
+\i \
+\pard\tx360\tx720\tx1080\tx1440\tx1800\tx2160\tx2520\tx2880\tx3240\tx3600\pardeftab720\pardirnatural
+
+\f1\i0\fs20 \cf0 paste here\
+\
+ttl:98\
+ttl:95\
+ttl:96\
+ttl:95\
+ttl:96\
+ttl:98\
+ttl:96\
+ttl:96\
+ttl:96\
+ttl:96\
+ttl:96\
+ttl:96\
+ttl:94\
+ttl:96\
+ttl:96\
+ttl:95\
+ttl:98\
+ttl:96\
+ttl:96\
+ttl:96\
+ttl:98\
+ttl:96\
+ttl:98\
+ttl:96\
+ttl:95\
+ttl:96\
+ttl:98\
+ttl:95\
+ttl:98\
+ttl:95\
+ttl:96\
+ttl:98\
+ttl:95\
+
+\f2\b \
+
+\f1\b0 \
+\pard\pardeftab720\sb120\sa120\pardirnatural
+
+\f0\fs22 \cf0 What was the largest number of servers to handle any request? How many were handled by three or more servers? Compare these results to those you got earlier and comment on the differences.\
+
+\i 4 servers since the smallest ttl is 94. 8 requests had a t/l of 95 or less (3 or more servers). This shows that the shortcut routes cut down on the number of hops overall, reducing traffic.\
+
+\i0 Type \'93
+\f1 grep \'96B15 ttl.95 out3
+\f0 \'94 and paste the output below.\
+\pard\tx360\tx720\tx1080\tx1440\tx1800\tx2160\tx2520\tx2880\tx3240\tx3600\pardeftab720\pardirnatural
+
+\f1\fs20 \cf0 paste here\
+\
+\pard\tx560\tx1120\tx1680\tx2240\tx2800\tx3360\tx3920\tx4480\tx5040\tx5600\tx6160\tx6720\pardirnatural
+\cf0 put who hah\
+/192.168.4.2:50108 sending packet to /192.168.3.2:36452\
+CSE473 DHTPv0.2015\
+type:put\
+key:who\
+val:hah\
+tag:12345\
+ttl:100\
+\
+/192.168.4.2:50108 received packet from /192.168.3.2:36452\
+CSE473 DHTPv0.2015\
+type:success\
+key:who\
+val:hah\
+tag:12345\
+ttl:95\
+--\
+\
+get who\
+/192.168.4.2:44023 sending packet to /192.168.2.5:48918\
+CSE473 DHTPv0.2015\
+type:get\
+key:who\
+tag:12345\
+ttl:100\
+\
+/192.168.4.2:44023 received packet from /192.168.2.5:48918\
+CSE473 DHTPv0.2015\
+type:success\
+key:who\
+val:hah\
+tag:12345\
+ttl:95\
+--\
+put political follies\
+/192.168.4.2:46865 sending packet to /192.168.3.2:36452\
+CSE473 DHTPv0.2015\
+type:put\
+key:political\
+val:follies\
+tag:12345\
+ttl:100\
+\
+/192.168.4.2:46865 received packet from /192.168.3.2:36452\
+CSE473 DHTPv0.2015\
+type:success\
+key:political\
+val:follies\
+tag:12345\
+ttl:95\
+--\
+\
+get fantasy\
+/192.168.4.2:44533 sending packet to /192.168.2.5:48918\
+CSE473 DHTPv0.2015\
+type:get\
+key:fantasy\
+tag:12345\
+ttl:100\
+\
+/192.168.4.2:44533 received packet from /192.168.2.5:48918\
+CSE473 DHTPv0.2015\
+type:success\
+key:fantasy\
+val:football\
+tag:12345\
+ttl:95\
+--\
+\
+get slim\
+/192.168.4.2:39242 sending packet to /192.168.1.1:44762\
+CSE473 DHTPv0.2015\
+type:get\
+key:slim\
+tag:12345\
+ttl:100\
+\
+/192.168.4.2:39242 received packet from /192.168.1.1:44762\
+CSE473 DHTPv0.2015\
+type:success\
+key:slim\
+val:jim\
+tag:12345\
+ttl:95\
+--\
+\
+get chocolate\
+/192.168.4.2:59679 sending packet to /192.168.2.3:41754\
+CSE473 DHTPv0.2015\
+type:get\
+key:chocolate\
+tag:12345\
+ttl:100\
+\
+/192.168.4.2:59679 received packet from /192.168.2.3:41754\
+CSE473 DHTPv0.2015\
+type:success\
+key:chocolate\
+val:fudge\
+tag:12345\
+ttl:95\
+--\
+\
+get fantasy\
+/192.168.4.2:43329 sending packet to /192.168.3.2:36452\
+CSE473 DHTPv0.2015\
+type:get\
+key:fantasy\
+tag:12345\
+ttl:100\
+\
+/192.168.4.2:43329 received packet from /192.168.3.2:36452\
+CSE473 DHTPv0.2015\
+type:success\
+key:fantasy\
+val:football\
+tag:12345\
+ttl:95\
+\pard\pardeftab720\sb120\sa120\pardirnatural
+
+\f0\fs22 \cf0 \
+Look at the last 
+\i get 
+\i0 operation performed by the script. Which server is the packet sent to by the client? \
+
+\i Server 2\
+\
+
+\i0 Use the log files to determine the sequence of servers that this packet passes through. List those servers below, in order.\
+2->4->6->2
+\i \
+
+\i0 Look at the \'93route diagram\'94 you made earlier. Is the path used by the packet consistent with your route diagram? If not, explain any discrepancy.\
+This route is not consistent with the diagram, the diagram has a shortcut from 2->6.  The route   2->6 was added after this packet was sent, so the shortcut was not present when this packet was processed.\
+Now, we are going to re-run 
+\i script2
+\i0  with single routes, but with caching enabled. Type\
+\pard\tx360\tx720\tx1080\tx1440\tx1800\tx2160\tx2520\tx2880\tx3240\tx3600\pardeftab720\pardirnatural
+
+\f1\fs20 \cf0 	./script2 1 cache >out1c \
+\pard\pardeftab720\sb120\sa120\pardirnatural
+
+\f0\fs22 \cf0 Next, type \'93
+\f1 grep ttl.9 out1c
+\f0 \'94 and paste the output below.
+\i \
+\pard\tx360\tx720\tx1080\tx1440\tx1800\tx2160\tx2520\tx2880\tx3240\tx3600\pardeftab720\pardirnatural
+
+\f1\i0\fs20 \cf0 paste here\
+\
+ttl:98\
+ttl:92\
+ttl:95\
+ttl:93\
+ttl:96\
+ttl:98\
+ttl:94\
+ttl:94\
+ttl:96\
+ttl:95\
+ttl:96\
+ttl:94\
+ttl:93\
+ttl:94\
+ttl:96\
+ttl:95\
+ttl:98\
+ttl:96\
+ttl:95\
+ttl:96\
+ttl:98\
+ttl:95\
+ttl:98\
+ttl:98\
+ttl:95\
+ttl:98\
+ttl:98\
+ttl:95\
+ttl:98\
+ttl:96\
+ttl:98\
+ttl:98\
+ttl:96\
+\
+\pard\pardeftab720\sb120\sa120\pardirnatural
+
+\f0\fs22 \cf0 What was the largest number of servers to handle any request? How many were handled by three or more or more servers? \
+The largest number of servers to handle a request was 6 (ttl of 92).  14 requests were handled by three or more servers (ttl of 95 or less).\
+\
+Compare these results to the results for the first two cases (no cache, 1 route and 3 routes) and comment on the differences.\
+
+\i These results are between the other two. Performance is only improved from repeated access to the same resource with only one route. There are not many duplicates in this script, so this did not boost performance very much. With caching, a small number of resources that are requested many times gives the biggest boost in performance.\
+\
+
+\i0 Type \'93
+\f1 grep \'96B15 ttl.95 out1c
+\f0 \'94 and paste the output below.\
+\pard\tx360\tx720\tx1080\tx1440\tx1800\tx2160\tx2520\tx2880\tx3240\tx3600\pardeftab720\pardirnatural
+
+\f1\fs20 \cf0 paste here\
+\
+get foo\
+/192.168.4.2:58108 sending packet to /192.168.1.1:52600\
+CSE473 DHTPv0.2015\
+type:get\
+key:foo\
+tag:12345\
+ttl:100\
+\
+/192.168.4.2:58108 received packet from /192.168.1.1:52600\
+CSE473 DHTPv0.2015\
+type:success\
+key:foo\
+val:bar\
+tag:12345\
+ttl:95\
+--\
+put flim flam\
+/192.168.4.2:41791 sending packet to /192.168.3.2:44754\
+CSE473 DHTPv0.2015\
+type:put\
+key:flim\
+val:flam\
+tag:12345\
+ttl:100\
+\
+/192.168.4.2:41791 received packet from /192.168.3.2:44754\
+CSE473 DHTPv0.2015\
+type:success\
+key:flim\
+val:flam\
+tag:12345\
+ttl:95\
+--\
+put political follies\
+/192.168.4.2:48697 sending packet to /192.168.3.2:44754\
+CSE473 DHTPv0.2015\
+type:put\
+key:political\
+val:follies\
+tag:12345\
+ttl:100\
+\
+/192.168.4.2:48697 received packet from /192.168.3.2:44754\
+CSE473 DHTPv0.2015\
+type:success\
+key:political\
+val:follies\
+tag:12345\
+ttl:95\
+--\
+\
+get flip\
+/192.168.4.2:56311 sending packet to /192.168.2.4:48993\
+CSE473 DHTPv0.2015\
+type:get\
+key:flip\
+tag:12345\
+ttl:100\
+\
+/192.168.4.2:56311 received packet from /192.168.2.4:48993\
+CSE473 DHTPv0.2015\
+type:success\
+key:flip\
+val:flop\
+tag:12345\
+ttl:95\
+--\
+\
+get chocolate\
+/192.168.4.2:47313 sending packet to /192.168.1.1:52600\
+CSE473 DHTPv0.2015\
+type:get\
+key:chocolate\
+tag:12345\
+ttl:100\
+\
+/192.168.4.2:47313 received packet from /192.168.1.1:52600\
+CSE473 DHTPv0.2015\
+type:success\
+key:chocolate\
+val:fudge\
+tag:12345\
+ttl:95\
+--\
+\
+get fantasy\
+/192.168.4.2:41468 sending packet to /192.168.2.5:33758\
+CSE473 DHTPv0.2015\
+type:get\
+key:fantasy\
+tag:12345\
+ttl:100\
+\
+/192.168.4.2:41468 received packet from /192.168.2.5:33758\
+CSE473 DHTPv0.2015\
+type:success\
+key:fantasy\
+val:football\
+tag:12345\
+ttl:95\
+--\
+\
+get slim\
+/192.168.4.2:56795 sending packet to /192.168.1.1:52600\
+CSE473 DHTPv0.2015\
+type:get\
+key:slim\
+tag:12345\
+ttl:100\
+\
+/192.168.4.2:56795 received packet from /192.168.1.1:52600\
+CSE473 DHTPv0.2015\
+type:success\
+key:slim\
+val:jim\
+tag:12345\
+ttl:95\
+\
+\pard\pardeftab720\sb120\sa120\pardirnatural
+
+\f0\fs22 \cf0 Look at the last 
+\i get 
+\i0 operation performed by the script.  Use the log files to determine the sequence of servers that this packet passes through. List those servers below, in order.
+\i \
+6->7->1->6\
+
+\i0 Compare this to the result for earlier case of no cache and three routes. Does the request go all the way the server that is responsible for this (
+\i key
+\i0 ,
+\i value
+\i0 ) pair, or does some intermediate server respond, using the contents of its cache? \
+This packet goes all the way to the responsible server (1) because this request has not been cached in server 7.\
+
+\i \
+\
+\
+
+\i0 \
+\
+\
+\
+\
+\
+\
+\
+\pard\tqc\tx4320\tqr\tx8640\pardeftab720\sb120\sa120\pardirnatural
+\cf0 	-  PAGE 9 -\
+\pard\pardeftab720\sb120\sa120\pardirnatural
+\cf0 \
+\
+\pard\pardeftab720\li720\fi-720\pardirnatural
+
+\i\fs24 \cf0 CSE 473 \'96 Introduction to Computer Networks		          
+\fs32 \
+\pard\pardeftab720\sb80\sa60\pardirnatural\qc
+
+\i0\fs34 \cf0 Lab 3 Report\
+\pard\tx9216\pardeftab720\li720\fi-720\pardirnatural
+
+\i\fs26 \cf0 David McDonnel\
+	10/21/2015   		
+\fs24 \
+\pard\pardeftab720\sb120\sa120\pardirnatural
+
+\i0\fs22 \cf0 \
+\
+\
+
+\i \
+}
